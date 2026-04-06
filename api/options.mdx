@@ -1,0 +1,280 @@
+---
+title: "Options"
+description: "Get and set web UI configuration via the API."
+---
+
+The options endpoints expose the WebUI's runtime settings — the same values you see in the **Settings** tab. Use `GET /sdapi/v1/options` to read the current configuration and `POST /sdapi/v1/options` to update one or more settings without restarting the server.
+
+<Note>
+  Changes made via `POST /sdapi/v1/options` are written to `config.json` on disk and persist across server restarts (unless the option is later overridden by a command-line argument). To make a change for a single request only, use `override_settings` in the generation request body instead.
+</Note>
+
+---
+
+## GET /sdapi/v1/options
+
+Returns the full set of current configuration options.
+
+### Response
+
+Returns a flat JSON object where every key is an option name and the value is the current setting. The set of keys and their types match `OptionsModel`, which is generated dynamically from the WebUI's `opts.data_labels` registry.
+
+<Expandable title="Commonly used option keys">
+
+| Key | Type | Description |
+|---|---|---|
+| `sd_model_checkpoint` | string | Title of the currently loaded checkpoint (e.g., `"v1-5-pruned-emaonly.safetensors [cc6cb27103]"`). |
+| `sd_vae` | string | Active VAE model name, or `"Automatic"` / `"None"`. |
+| `CLIP_stop_at_last_layers` | integer | Number of CLIP layers to skip from the end. Commonly set to `1` or `2`. |
+| `img2img_background_color` | string | Background fill color for img2img resize operations. |
+| `outdir_samples` | string | Directory where generated images are saved. |
+| `outdir_txt2img_samples` | string | Output directory for txt2img images. |
+| `outdir_img2img_samples` | string | Output directory for img2img images. |
+| `save_to_dirs` | boolean | Save outputs into subdirectories. |
+| `samples_filename_pattern` | string | Filename pattern for saved images. |
+| `samples_format` | string | Output image format: `"png"`, `"jpg"`, or `"webp"`. |
+| `jpeg_quality` | integer | JPEG/WebP quality level (1–100). |
+| `face_restoration_model` | string | Default face restorer: `"GFPGAN"`, `"CodeFormer"`, or `"None"`. |
+| `code_former_weight` | float | Default CodeFormer fidelity weight. |
+| `filter_nsfw` | boolean | Apply safety filter to outputs. |
+| `enable_pnginfo` | boolean | Embed generation parameters into PNG metadata. |
+| `training_xattention_optimizations` | boolean | Use cross-attention optimizations during training. |
+| `show_progress_every_n_steps` | integer | How often to update the live progress preview image. `0` disables previews. |
+| `s_churn` | float | Default churn value for stochastic samplers. |
+| `s_tmin` | float | Default minimum sigma for churn. |
+| `s_tmax` | float | Default maximum sigma. |
+| `s_noise` | float | Default noise multiplier. |
+| `eta_ancestral` | float | Default eta for ancestral samplers. |
+| `eta_ddim` | float | Default eta for DDIM. |
+
+</Expandable>
+
+### Example
+
+<CodeGroup>
+
+```bash curl
+curl http://127.0.0.1:7860/sdapi/v1/options
+```
+
+```python python
+import requests
+
+options = requests.get("http://127.0.0.1:7860/sdapi/v1/options").json()
+
+print("Active checkpoint:", options.get("sd_model_checkpoint"))
+print("Active VAE:", options.get("sd_vae"))
+print("Output format:", options.get("samples_format"))
+```
+
+</CodeGroup>
+
+---
+
+## POST /sdapi/v1/options
+
+Update one or more configuration options. Only the keys you include in the request body are changed; all others remain at their current values.
+
+### Request body
+
+A flat JSON object with option keys and their new values. Any key accepted by `GET /sdapi/v1/options` can be set here.
+
+<Warning>
+  Setting `sd_model_checkpoint` triggers a model reload, which may take 10–30 seconds or more depending on the model size and hardware. If the specified checkpoint name is not found in `sd_models.checkpoint_aliases`, the server raises a `RuntimeError` with status 500.
+</Warning>
+
+### Response
+
+Returns no content on success (HTTP 200 with an empty body).
+
+### Example: reading and restoring options
+
+<CodeGroup>
+
+```bash curl
+# Switch the active checkpoint
+curl -X POST http://127.0.0.1:7860/sdapi/v1/options \
+  -H "Content-Type: application/json" \
+  -d '{"sd_model_checkpoint": "v1-5-pruned-emaonly.safetensors [cc6cb27103]"}'
+```
+
+```python python
+import requests
+
+# Read current value first so you can restore it later
+original = requests.get("http://127.0.0.1:7860/sdapi/v1/options").json()
+original_model = original["sd_model_checkpoint"]
+
+# Switch to a different model
+requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/options",
+    json={"sd_model_checkpoint": "dreamshaper_8.safetensors [879db523c3]"},
+).raise_for_status()
+
+# ... do generation work here ...
+
+# Restore the original model
+requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/options",
+    json={"sd_model_checkpoint": original_model},
+).raise_for_status()
+```
+
+</CodeGroup>
+
+### Example: switching models with verification
+
+<CodeGroup>
+
+```bash curl
+# Get all available model titles first
+curl http://127.0.0.1:7860/sdapi/v1/sd-models | python3 -c "
+import sys, json
+print([m['title'] for m in json.load(sys.stdin)])
+"
+
+# Set the model using the exact title string
+curl -X POST http://127.0.0.1:7860/sdapi/v1/options \
+  -H "Content-Type: application/json" \
+  -d '{"sd_model_checkpoint": "anything-v5-PrtRE.safetensors [7f96a1a9ca]"}'
+```
+
+```python python
+import requests
+
+# Look up the exact title before setting
+models = requests.get("http://127.0.0.1:7860/sdapi/v1/sd-models").json()
+target = next(m for m in models if "anything-v5" in m["model_name"].lower())
+
+requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/options",
+    json={"sd_model_checkpoint": target["title"]},
+).raise_for_status()
+print(f"Switched to: {target['title']}")
+```
+
+</CodeGroup>
+
+---
+
+## GET /sdapi/v1/cmd-flags
+
+Returns the command-line arguments that the server was started with as a flat JSON object.
+
+These values are read-only at runtime — changing them requires restarting the server with different arguments.
+
+### Response
+
+Returns `FlagsModel`, a dynamically generated Pydantic model reflecting every argument registered with the server's `argparse` parser. Common keys include:
+
+| Key | Type | Description |
+|---|---|---|
+| `listen` | boolean | Whether the server is listening on all interfaces. |
+| `port` | integer | Port the server is bound to. |
+| `api` | boolean | Whether the API is enabled. |
+| `api_auth` | string | Authentication credentials string (`user:password,...`). |
+| `api_log` | boolean | Whether API requests are logged to stdout. |
+| `no_half` | boolean | Whether float16 is disabled. |
+| `xformers` | boolean | Whether xformers memory-efficient attention is enabled. |
+| `medvram` | boolean | Whether medium VRAM mode is active. |
+| `lowvram` | boolean | Whether low VRAM mode is active. |
+| `ckpt` | string | Path to the checkpoint loaded at startup. |
+| `api_server_stop` | boolean | Whether the server-kill/stop/restart endpoints are enabled. |
+
+### Example
+
+<CodeGroup>
+
+```bash curl
+curl http://127.0.0.1:7860/sdapi/v1/cmd-flags
+```
+
+```python python
+import requests
+
+flags = requests.get("http://127.0.0.1:7860/sdapi/v1/cmd-flags").json()
+print("API auth enabled:", flags.get("api_auth") is not None)
+print("xformers:", flags.get("xformers"))
+print("Port:", flags.get("port"))
+```
+
+</CodeGroup>
+
+---
+
+## Server control endpoints
+
+These endpoints are only available when the server is started with the `--api-server-stop` command-line flag. Calling them without this flag results in a 404.
+
+<Warning>
+  These endpoints kill or restart the server process. There is no confirmation step. Ensure your automation handles the resulting downtime.
+</Warning>
+
+### POST /sdapi/v1/server-kill
+
+Immediately terminate the server process.
+
+```bash
+curl -X POST http://127.0.0.1:7860/sdapi/v1/server-kill
+```
+
+### POST /sdapi/v1/server-restart
+
+Restart the server process. Returns HTTP 501 if the server is not in a restartable mode (i.e., not launched via the webui.sh/webui.bat script).
+
+```bash
+curl -X POST http://127.0.0.1:7860/sdapi/v1/server-restart
+```
+
+### POST /sdapi/v1/server-stop
+
+Gracefully stop the server by setting the internal state to `"stop"`. Unlike `server-kill`, this allows in-progress requests to finish before the server exits.
+
+```bash
+curl -X POST http://127.0.0.1:7860/sdapi/v1/server-stop
+```
+
+---
+
+## Patterns
+
+### Temporary model switch per-request
+
+For one-off model switches without permanently changing the setting, use `override_settings` in the generation request:
+
+```python python
+import requests
+
+# This approach does not modify the persistent settings
+response = requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/txt2img",
+    json={
+        "prompt": "an impressionist painting of a garden",
+        "steps": 25,
+        "override_settings": {
+            "sd_model_checkpoint": "dreamshaper_8.safetensors [879db523c3]",
+            "CLIP_stop_at_last_layers": 2,
+        },
+        "override_settings_restore_afterwards": True,
+    },
+)
+response.raise_for_status()
+```
+
+### Adjusting VAE
+
+```python python
+import requests
+
+# Use the baked-in VAE of the current model
+requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/options",
+    json={"sd_vae": "None"},
+).raise_for_status()
+
+# Switch to a specific VAE
+requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/options",
+    json={"sd_vae": "vae-ft-mse-840000-ema-pruned.safetensors"},
+).raise_for_status()
+```

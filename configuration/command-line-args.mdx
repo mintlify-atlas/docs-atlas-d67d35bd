@@ -1,0 +1,487 @@
+---
+title: "Command-Line Arguments"
+description: "All available command-line flags for launching the web UI."
+---
+
+Command-line arguments let you control how the web UI starts and behaves. Pass them directly when running `webui.py`, or set them persistently in your `webui-user` file.
+
+## Setting arguments persistently
+
+Rather than typing arguments on every launch, add them to your `webui-user` file in the installation directory.
+
+<Tabs>
+  <Tab title="Linux / macOS (webui-user.sh)">
+    ```bash webui-user.sh
+    export COMMANDLINE_ARGS="--xformers --medvram"
+    ```
+  </Tab>
+  <Tab title="Windows (webui-user.bat)">
+    ```batch webui-user.bat
+    set COMMANDLINE_ARGS=--xformers --medvram
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  Uncomment the `COMMANDLINE_ARGS` line in the file — it is commented out by default.
+</Note>
+
+---
+
+## Server / network
+
+These arguments control how Gradio binds to the network and how the UI is accessed remotely.
+
+<ParamField path="--listen" type="flag">
+  Launch Gradio with `0.0.0.0` as the server name, allowing the UI to respond to requests from other machines on the network. By default the server only listens on `127.0.0.1`.
+</ParamField>
+
+<ParamField path="--port" type="integer" default="7860">
+  Port to bind the Gradio server to. Ports below 1024 require root or administrator privileges. If the default port 7860 is in use, the server will try the next available port.
+</ParamField>
+
+<ParamField path="--server-name" type="string">
+  Sets the hostname of the server explicitly. Use instead of `--listen` when you need a specific interface address.
+</ParamField>
+
+<ParamField path="--share" type="flag">
+  Creates a public shareable URL via Gradio's tunnelling service. The link is accessible from anywhere on the internet for the duration of the session.
+</ParamField>
+
+<ParamField path="--ngrok" type="string">
+  Your ngrok authtoken. Starts an ngrok tunnel as an alternative to `--share`. Obtain a token from the ngrok dashboard.
+</ParamField>
+
+<ParamField path="--ngrok-options" type="string">
+  JSON string of additional options passed to ngrok. Example: `'{"basic_auth":"user:password"}'`.
+</ParamField>
+
+<ParamField path="--gradio-auth" type="string">
+  Require a username and password to access the UI. Format: `username:password`. Multiple accounts can be provided as a comma-separated list: `u1:p1,u2:p2`.
+</ParamField>
+
+<ParamField path="--gradio-auth-path" type="string">
+  Path to a file containing authentication credentials in the same `username:password` format as `--gradio-auth`. Useful when you do not want credentials in shell history.
+</ParamField>
+
+<ParamField path="--gradio-allowed-path" type="string">
+  Adds a path to Gradio's list of allowed paths, enabling the UI to serve files from that directory. Can be specified multiple times.
+</ParamField>
+
+<ParamField path="--subpath" type="string">
+  Customizes the subpath for Gradio when running behind a reverse proxy (e.g. `/sd`).
+</ParamField>
+
+<ParamField path="--tls-keyfile" type="string">
+  Path to a TLS private key file. Must be used together with `--tls-certfile` to enable HTTPS.
+</ParamField>
+
+<ParamField path="--tls-certfile" type="string">
+  Path to a TLS certificate file. Must be used together with `--tls-keyfile` to enable HTTPS.
+</ParamField>
+
+<ParamField path="--disable-tls-verify" type="flag">
+  Disables TLS certificate verification, enabling the use of self-signed certificates.
+</ParamField>
+
+<ParamField path="--cors-allow-origins" type="string">
+  Comma-separated list of allowed CORS origins (no spaces). Example: `https://example.com,https://other.com`.
+</ParamField>
+
+<ParamField path="--cors-allow-origins-regex" type="string">
+  A single regular expression matching allowed CORS origins.
+</ParamField>
+
+<ParamField path="--no-gradio-queue" type="flag">
+  Disables the Gradio queue, reverting to plain HTTP requests instead of WebSockets. This was the default in earlier versions and reduces responsiveness.
+</ParamField>
+
+<ParamField path="--timeout-keep-alive" type="integer" default="30">
+  Sets the `timeout_keep_alive` value for the uvicorn server, in seconds.
+</ParamField>
+
+<Warning>
+  Using `--listen`, `--share`, or `--ngrok` without `--gradio-auth` exposes the UI to anyone who can reach the address. Always set authentication when making the UI publicly accessible.
+</Warning>
+
+---
+
+## Model paths
+
+Override the default locations where the web UI looks for model files and assets.
+
+<ParamField path="--ckpt" type="string">
+  Path to a specific Stable Diffusion checkpoint. The specified checkpoint is added to the list and loaded on startup.
+</ParamField>
+
+<ParamField path="--ckpt-dir" type="string">
+  Directory containing Stable Diffusion checkpoint files. Overrides the default `models/Stable-diffusion` folder.
+</ParamField>
+
+<ParamField path="--vae-dir" type="string">
+  Directory containing VAE files. Overrides the default VAE folder.
+</ParamField>
+
+<ParamField path="--vae-path" type="string">
+  Path to a specific VAE checkpoint to use globally. Setting this disables all per-model VAE settings in the UI.
+</ParamField>
+
+<ParamField path="--embeddings-dir" type="string" default="embeddings">
+  Directory for textual inversion embedding files.
+</ParamField>
+
+<ParamField path="--hypernetwork-dir" type="string" default="models/hypernetworks">
+  Directory for hypernetwork model files.
+</ParamField>
+
+<ParamField path="--lora-dir" type="string">
+  Directory for LoRA model files. Controlled from the UI's Extra Networks panel.
+</ParamField>
+
+<ParamField path="--data-dir" type="string">
+  Base path where all user data (outputs, configs, models) is stored. Defaults to the webui root directory.
+</ParamField>
+
+<ParamField path="--models-dir" type="string">
+  Base path for all model subdirectories. Overrides `--data-dir` for model storage.
+</ParamField>
+
+<ParamField path="--config" type="string">
+  Path to the model architecture config file used to construct the model.
+</ParamField>
+
+<ParamField path="--clip-models-path" type="string">
+  Directory containing CLIP model files.
+</ParamField>
+
+<ParamField path="--esrgan-models-path" type="string" default="models/ESRGAN">
+  Directory containing ESRGAN upscaler model files.
+</ParamField>
+
+<ParamField path="--realesrgan-models-path" type="string" default="models/RealESRGAN">
+  Directory containing RealESRGAN model files.
+</ParamField>
+
+<ParamField path="--bsrgan-models-path" type="string" default="models/BSRGAN">
+  Directory containing BSRGAN model files.
+</ParamField>
+
+<ParamField path="--dat-models-path" type="string" default="models/DAT">
+  Directory containing DAT upscaler model files.
+</ParamField>
+
+<ParamField path="--codeformer-models-path" type="string" default="models/Codeformer">
+  Directory containing CodeFormer face restoration model files.
+</ParamField>
+
+<ParamField path="--gfpgan-models-path" type="string" default="models/GFPGAN">
+  Directory containing GFPGAN face restoration model files.
+</ParamField>
+
+<ParamField path="--gfpgan-dir" type="string">
+  GFPGAN source directory. Defaults to `./src/gfpgan` if it exists, otherwise `./GFPGAN`.
+</ParamField>
+
+<ParamField path="--textual-inversion-templates-dir" type="string">
+  Directory containing textual inversion training template files.
+</ParamField>
+
+<ParamField path="--localizations-dir" type="string" default="localizations">
+  Directory containing UI localization files.
+</ParamField>
+
+<ParamField path="--styles-file" type="string">
+  Path or wildcard path to style files. Can be specified multiple times to load styles from multiple locations.
+</ParamField>
+
+---
+
+## Performance
+
+These arguments control memory usage and compute optimizations. See [Performance optimizations](/configuration/optimizations) for guidance on which to use for your hardware.
+
+<ParamField path="--xformers" type="flag">
+  Enables xformers memory-efficient attention for cross-attention layers. Reduces VRAM usage and improves speed on Nvidia GPUs. Requires the xformers package.
+</ParamField>
+
+<ParamField path="--force-enable-xformers" type="flag">
+  Enables xformers even when compatibility checks fail. Use only if you know xformers works on your system and the automatic check is giving a false negative.
+</ParamField>
+
+<ParamField path="--xformers-flash-attention" type="flag">
+  Enables xformers with Flash Attention. Improves reproducibility; supported for SD 2.x and variants only.
+</ParamField>
+
+<ParamField path="--medvram" type="flag">
+  Enables model optimizations that reduce VRAM usage with a small speed penalty. Suitable for GPUs with 4–6 GB of VRAM.
+</ParamField>
+
+<ParamField path="--medvram-sdxl" type="flag">
+  Applies `--medvram` optimizations only when an SDXL model is loaded. Has no effect on SD 1.x models.
+</ParamField>
+
+<ParamField path="--lowvram" type="flag">
+  Enables aggressive model optimizations that keep only one model component in VRAM at a time. Significant speed reduction in exchange for very low VRAM usage. For GPUs with less than 4 GB.
+</ParamField>
+
+<ParamField path="--lowram" type="flag">
+  Loads checkpoint weights directly into VRAM rather than RAM first. Useful on systems with limited system RAM.
+</ParamField>
+
+<ParamField path="--no-half" type="flag">
+  Keeps the model in 32-bit float precision instead of converting to 16-bit. Required for some AMD GPUs and older Nvidia cards that do not support `float16` well.
+</ParamField>
+
+<ParamField path="--no-half-vae" type="flag">
+  Keeps the VAE model in 32-bit float precision while allowing the main model to use 16-bit. Prevents black image output on some AMD GPUs without the full speed penalty of `--no-half`.
+</ParamField>
+
+<ParamField path="--precision" type="string" default="autocast">
+  Evaluation precision for the model. Choices: `full`, `half`, `autocast`. `autocast` uses 32-bit where needed and 16-bit elsewhere.
+</ParamField>
+
+<ParamField path="--upcast-sampling" type="flag">
+  Upcasts sampling operations to float32. Has no effect when `--no-half` is set. Produces results similar to `--no-half` with better performance and lower memory use.
+</ParamField>
+
+<ParamField path="--opt-split-attention" type="flag">
+  Forces use of Doggettx's cross-attention optimization. Reduces VRAM usage by splitting attention computation.
+</ParamField>
+
+<ParamField path="--opt-split-attention-invokeai" type="flag">
+  Forces use of InvokeAI's cross-attention optimization as an alternative to Doggettx's implementation.
+</ParamField>
+
+<ParamField path="--opt-split-attention-v1" type="flag">
+  Forces use of the older v1 split attention implementation.
+</ParamField>
+
+<ParamField path="--opt-sub-quad-attention" type="flag">
+  Forces use of memory-efficient sub-quadratic cross-attention. Useful when other attention optimizations cause issues.
+</ParamField>
+
+<ParamField path="--sub-quad-q-chunk-size" type="integer" default="1024">
+  Query chunk size for the sub-quadratic attention optimization.
+</ParamField>
+
+<ParamField path="--sub-quad-kv-chunk-size" type="integer">
+  Key-value chunk size for the sub-quadratic attention optimization. Defaults to automatic selection.
+</ParamField>
+
+<ParamField path="--sub-quad-chunk-threshold" type="integer">
+  VRAM percentage threshold at which the sub-quadratic attention optimization enables chunking.
+</ParamField>
+
+<ParamField path="--opt-sdp-attention" type="flag">
+  Forces use of PyTorch's scaled dot-product attention (SDPA). Requires PyTorch 2.0 or later.
+</ParamField>
+
+<ParamField path="--opt-sdp-no-mem-attention" type="flag">
+  Uses SDPA without memory-efficient attention. Produces deterministic results across runs. Requires PyTorch 2.0 or later.
+</ParamField>
+
+<ParamField path="--disable-opt-split-attention" type="flag">
+  Disables all cross-attention optimizations, using the default PyTorch attention implementation.
+</ParamField>
+
+<ParamField path="--opt-channelslast" type="flag">
+  Changes the memory layout for stable diffusion tensors to channels-last format. May improve performance on some hardware.
+</ParamField>
+
+<ParamField path="--use-cpu" type="string">
+  Runs specified modules on CPU instead of GPU. Accepts a space-separated list of module names (e.g. `all`, `sd`, `interrogate`).
+</ParamField>
+
+<ParamField path="--use-ipex" type="flag">
+  Uses Intel XPU (via Intel Extension for PyTorch) as the compute device. For Intel Arc and Iris Xe GPUs.
+</ParamField>
+
+<ParamField path="--device-id" type="string">
+  Selects a specific CUDA device by index. Equivalent to setting `CUDA_VISIBLE_DEVICES`.
+</ParamField>
+
+<ParamField path="--disable-model-loading-ram-optimization" type="flag">
+  Disables the optimization that reduces RAM usage when loading a model. May be needed if the optimization causes issues.
+</ParamField>
+
+---
+
+## UI behavior
+
+<ParamField path="--autolaunch" type="flag">
+  Opens the web UI URL in the system's default browser automatically on launch.
+</ParamField>
+
+<ParamField path="--theme" type="string">
+  Sets the UI color theme. Accepted values: `light`, `dark`. Overrides the browser's detected preference.
+</ParamField>
+
+<ParamField path="--ui-config-file" type="string" default="ui-config.json">
+  Path to the JSON file that stores UI component configuration (slider ranges, default values for UI elements).
+</ParamField>
+
+<ParamField path="--ui-settings-file" type="string" default="config.json">
+  Path to the JSON file that stores Settings tab values. This is the main settings file.
+</ParamField>
+
+<ParamField path="--freeze-settings" type="flag">
+  Disables editing of all settings globally. Users can view but not change any settings.
+</ParamField>
+
+<ParamField path="--freeze-settings-in-sections" type="string">
+  Disables editing of settings in specific sections. Accepts a comma-separated list of section names, e.g. `saving-images,upscaling`.
+</ParamField>
+
+<ParamField path="--freeze-specific-settings" type="string">
+  Disables editing of individual settings by name. Accepts a comma-separated list of setting keys, e.g. `samples_save,samples_format`.
+</ParamField>
+
+<ParamField path="--hide-ui-dir-config" type="flag">
+  Hides directory configuration fields from the settings UI.
+</ParamField>
+
+<ParamField path="--use-textbox-seed" type="flag">
+  Replaces the numeric seed spinner with a plain text box. Allows entering very long seeds that would overflow a spinner.
+</ParamField>
+
+<ParamField path="--no-progressbar-hiding" type="flag">
+  Prevents the web UI from hiding the Gradio progress bar. The built-in progress display is shown instead, but the Gradio bar can slow down generation when hardware acceleration is active in the browser.
+</ParamField>
+
+<ParamField path="--disable-console-progressbars" type="flag">
+  Suppresses progress bar output in the terminal.
+</ParamField>
+
+<ParamField path="--no-prompt-history" type="flag">
+  Disables reading the prompt from the last generation. Prevents creation of `params.txt` in the data directory.
+</ParamField>
+
+<ParamField path="--filenames-max-length" type="integer" default="128">
+  Maximum character length for saved image filenames. Longer names will be truncated.
+</ParamField>
+
+<ParamField path="--unix-filenames-sanitization" type="flag">
+  Allows any character except `/` in filenames. May cause issues with some browsers or filesystems.
+</ParamField>
+
+---
+
+## API
+
+<ParamField path="--api" type="flag">
+  Starts the REST API alongside the web UI. Exposes endpoints under `/sdapi/v1/`.
+</ParamField>
+
+<ParamField path="--api-auth" type="string">
+  Sets HTTP Basic authentication for the API. Format: `username:password`. Multiple accounts: `u1:p1,u2:p2`.
+</ParamField>
+
+<ParamField path="--api-log" type="flag">
+  Enables logging of all API requests to the console.
+</ParamField>
+
+<ParamField path="--nowebui" type="flag">
+  Starts the API server only, without the Gradio web interface. Use when you only need programmatic access.
+</ParamField>
+
+<ParamField path="--api-server-stop" type="flag">
+  Enables the `/sdapi/v1/server-stop`, `/sdapi/v1/server-restart`, and `/sdapi/v1/server-kill` API endpoints.
+</ParamField>
+
+<ParamField path="--skip-load-model-at-start" type="flag">
+  Skips loading a model when the server starts. Only takes effect with `--nowebui`.
+</ParamField>
+
+---
+
+## Miscellaneous
+
+<AccordionGroup>
+  <Accordion title="Safety and security">
+    <ParamField path="--allow-code" type="flag">
+      Permits execution of custom Python scripts submitted through the web UI. Disabled by default for security.
+    </ParamField>
+
+    <ParamField path="--disable-safe-unpickle" type="flag">
+      Disables the check that scans PyTorch model files for malicious code before loading. Only use if you trust all models you are loading.
+    </ParamField>
+
+    <ParamField path="--enable-insecure-extension-access" type="flag">
+      Shows the Extensions tab even when the UI is accessible remotely (`--share`, `--listen`, `--ngrok`). By default, extension management is hidden in non-local configurations.
+    </ParamField>
+
+    <ParamField path="--disable-all-extensions" type="flag">
+      Prevents all extensions from loading, regardless of any other settings.
+    </ParamField>
+
+    <ParamField path="--disable-extra-extensions" type="flag">
+      Prevents all non-built-in extensions from loading.
+    </ParamField>
+  </Accordion>
+
+  <Accordion title="Startup and environment">
+    <ParamField path="--skip-torch-cuda-test" type="flag">
+      Skips the CUDA functionality check at startup.
+    </ParamField>
+
+    <ParamField path="--skip-python-version-check" type="flag">
+      Skips the Python version compatibility check at startup.
+    </ParamField>
+
+    <ParamField path="--skip-version-check" type="flag">
+      Skips version checks for PyTorch and xformers.
+    </ParamField>
+
+    <ParamField path="--skip-install" type="flag">
+      Skips installation of Python packages. The environment must already have all dependencies installed.
+    </ParamField>
+
+    <ParamField path="--skip-prepare-environment" type="flag">
+      Skips all environment preparation steps.
+    </ParamField>
+
+    <ParamField path="--reinstall-xformers" type="flag">
+      Reinstalls xformers to the version appropriate for the installed PyTorch, even if xformers is already present.
+    </ParamField>
+
+    <ParamField path="--reinstall-torch" type="flag">
+      Reinstalls PyTorch to the appropriate version, even if it is already installed.
+    </ParamField>
+
+    <ParamField path="--update-all-extensions" type="flag">
+      Downloads and applies updates for all installed extensions on startup.
+    </ParamField>
+
+    <ParamField path="--update-check" type="flag">
+      Checks for a new version of the web UI on startup.
+    </ParamField>
+
+    <ParamField path="--no-download-sd-model" type="flag">
+      Skips automatic download of the default SD 1.5 model even when no checkpoint is found in `--ckpt-dir`.
+    </ParamField>
+
+    <ParamField path="--do-not-download-clip" type="flag">
+      Skips downloading the CLIP model even when it is not bundled with the checkpoint.
+    </ParamField>
+
+    <ParamField path="--no-hashing" type="flag">
+      Disables SHA-256 hashing of checkpoint files on load. Speeds up startup when you have many large models.
+    </ParamField>
+
+    <ParamField path="--loglevel" type="string">
+      Sets the Python logging level. Choices: `CRITICAL`, `ERROR`, `WARNING`, `INFO`, `DEBUG`.
+    </ParamField>
+
+    <ParamField path="--log-startup" type="flag">
+      Prints a detailed log of all startup operations to the console.
+    </ParamField>
+
+    <ParamField path="--dump-sysinfo" type="flag">
+      Writes a system information file to disk and exits immediately. Useful for bug reports.
+    </ParamField>
+
+    <ParamField path="--disable-nan-check" type="flag">
+      Disables checks for NaN values in generated images and latent spaces. Useful for CI environments running without a real checkpoint.
+    </ParamField>
+  </Accordion>
+</AccordionGroup>

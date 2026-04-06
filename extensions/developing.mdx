@@ -1,0 +1,401 @@
+---
+title: "Developing extensions"
+description: "Build your own extension for Stable Diffusion web UI."
+---
+
+An extension is a directory containing Python scripts and optional static assets. The web UI discovers extensions automatically at startup by scanning `extensions/` and `extensions-builtin/` for subdirectories, then importing any `.py` files in their `scripts/` subdirectory.
+
+## Directory structure
+
+```
+extensions/
+└── my-extension/
+    ├── scripts/
+    │   └── my_script.py      # Script subclass(es)
+    ├── javascript/
+    │   └── my_script.js      # Injected into every page
+    ├── style.css             # Injected into every page
+    ├── install.py            # Runs once at startup to install pip packages
+    └── metadata.ini          # Extension manifest
+```
+
+Only the `scripts/` directory is required. Everything else is optional.
+
+### install.py
+
+`install.py` runs at web UI startup before any scripts are imported. Use it to install Python packages your extension depends on:
+
+```python
+import launch
+
+if not launch.is_installed("some_package"):
+    launch.run_pip("install some_package", "some_package for my-extension")
+```
+
+### metadata.ini
+
+`metadata.ini` declares the extension's canonical name and any required extensions:
+
+```ini
+[Extension]
+Name = my-extension
+Requires = sd-webui-controlnet
+```
+
+The `Name` value becomes the extension's canonical name used for deduplication and dependency resolution. If omitted, the directory name is used.
+
+## The Script base class
+
+Most extensions hook into the generation pipeline by subclassing `modules.scripts.Script`. The web UI instantiates every `Script` subclass it finds and registers it in the txt2img and/or img2img script dropdowns (or as an always-visible panel).
+
+```python
+import modules.scripts as scripts
+import gradio as gr
+
+
+class MyScript(scripts.Script):
+
+    def title(self):
+        return "My Extension"
+
+    def show(self, is_img2img):
+        # Return True to appear in the script dropdown.
+        # Return scripts.AlwaysVisible to always show in the UI.
+        # Return False to hide entirely.
+        return scripts.AlwaysVisible
+
+    def ui(self, is_img2img):
+        with gr.Accordion("My Extension", open=False):
+            enabled = gr.Checkbox(label="Enable", value=False)
+            strength = gr.Slider(
+                label="Strength", minimum=0.0, maximum=1.0, step=0.01, value=0.5
+            )
+        return [enabled, strength]
+
+    def process(self, p, enabled, strength):
+        if not enabled:
+            return
+        # Modify the processing object before sampling begins.
+        p.extra_generation_params["My Extension strength"] = strength
+```
+
+### Script methods
+
+The `Script` base class defines the following methods you can override:
+
+<AccordionGroup>
+  <Accordion title="title()">
+    Returns the string shown in the script dropdown. Required — raises `NotImplementedError` if not overridden.
+
+    ```python
+    def title(self):
+        return "My Extension"
+    ```
+  </Accordion>
+
+  <Accordion title="show(is_img2img)">
+    Controls when the script is visible. `is_img2img` is `True` when building the img2img UI.
+
+    - Return `True` to appear in the script dropdown when selected.
+    - Return `scripts.AlwaysVisible` to render the UI outside the dropdown, visible at all times.
+    - Return `False` to hide the script entirely (useful to exclude from one tab).
+
+    ```python
+    def show(self, is_img2img):
+        return scripts.AlwaysVisible  # show on both tabs, always visible
+    ```
+  </Accordion>
+
+  <Accordion title="ui(is_img2img)">
+    Creates and returns Gradio components. The list you return is passed positionally to `run()`, `process()`, and the other processing hooks.
+
+    ```python
+    def ui(self, is_img2img):
+        scale = gr.Slider(label="Scale", minimum=1, maximum=4, step=1, value=2)
+        return [scale]
+    ```
+  </Accordion>
+
+  <Accordion title="run(p, *args)">
+    Called when the script is selected from the dropdown and the user clicks **Generate**. Must return a `Processed` object. Typically calls `processing.process_images(p)` internally.
+
+    ```python
+    def run(self, p, scale):
+        import modules.processing as processing
+        p.width *= scale
+        p.height *= scale
+        return processing.process_images(p)
+    ```
+
+    This method is only called for selectable scripts (where `show()` returns `True`). For `AlwaysVisible` scripts, use `process()` or `before_process()` instead.
+  </Accordion>
+
+  <Accordion title="before_process(p, *args)">
+    Called for `AlwaysVisible` scripts very early in processing, before the model runs. Use this to modify `p` or attach hooks.
+
+    ```python
+    def before_process(self, p, enabled, strength):
+        if enabled:
+            p.cfg_scale *= strength
+    ```
+  </Accordion>
+
+  <Accordion title="process(p, *args)">
+    Called for `AlwaysVisible` scripts just before sampling begins. Similar to `before_process()` but runs slightly later, after any additional setup.
+  </Accordion>
+
+  <Accordion title="before_process_batch(p, *args, **kwargs)">
+    Called before extra networks are parsed from the prompt. Keyword arguments include `batch_number`, `prompts`, `seeds`, and `subseeds`. You can modify `prompts` in place to inject extra network keywords.
+
+    ```python
+    def before_process_batch(self, p, enabled, strength, **kwargs):
+        if enabled:
+            kwargs["prompts"][0] += ", highly detailed"
+    ```
+  </Accordion>
+
+  <Accordion title="process_batch(p, *args, **kwargs)">
+    Called once per batch. Keyword arguments include `batch_number`, `prompts`, `seeds`, and `subseeds`.
+  </Accordion>
+
+  <Accordion title="postprocess_image(p, pp, *args)">
+    Called after each individual image is generated but before it is saved. `pp` is a `PostprocessImageArgs` object with a `.image` PIL image you can modify.
+
+    ```python
+    def postprocess_image(self, p, pp, enabled, strength):
+        if enabled:
+            pp.image = pp.image.convert("L").convert("RGB")  # greyscale
+    ```
+  </Accordion>
+
+  <Accordion title="postprocess(p, processed, *args)">
+    Called after all images in the batch are generated. `processed` is the `Processed` result object.
+  </Accordion>
+</AccordionGroup>
+
+## AlwaysVisible vs selectable scripts
+
+`AlwaysVisible` scripts render their UI permanently on the page, outside the script dropdown. They are useful for features that should be optionally active on every generation — the built-in **Soft Inpainting** and **Hypertile** extensions both use this pattern.
+
+Selectable scripts appear in the **Script** dropdown at the bottom of the txt2img/img2img form. Only one selectable script can be active at a time. Their `run()` method is called instead of the normal `process_images` flow, so they have full control over generation.
+
+```python
+def show(self, is_img2img):
+    # Only show on txt2img, and only when selected from the dropdown
+    return not is_img2img
+```
+
+## ScriptPostprocessing for Extras tab extensions
+
+Extensions that add postprocessing steps to the **Extras** tab (upscalers, face restoration, etc.) subclass `modules.scripts_postprocessing.ScriptPostprocessing` instead of `Script`.
+
+```python
+import gradio as gr
+from modules import scripts_postprocessing
+
+
+class MyPostprocessor(scripts_postprocessing.ScriptPostprocessing):
+    name = "My Postprocessor"
+    order = 900  # lower values run first
+
+    def ui(self):
+        with gr.Row():
+            enabled = gr.Checkbox(label="Enable my postprocessor", value=False)
+            amount = gr.Slider(label="Amount", minimum=0.0, maximum=1.0, value=0.5)
+        # Return a dict mapping parameter names to components
+        return {"enabled": enabled, "amount": amount}
+
+    def process(self, pp: scripts_postprocessing.PostprocessedImage, enabled, amount):
+        if not enabled:
+            return
+        # pp.image is a PIL Image you can modify
+        # pp.info is a dict of metadata to add to the image info string
+        pp.info["My Postprocessor amount"] = amount
+```
+
+The `order` attribute controls where in the postprocessing chain this script runs. Lower values run earlier. The `ui()` method must return a dictionary (unlike `Script.ui()` which returns a list).
+
+## Script callbacks
+
+Script callbacks let extensions hook into parts of the web UI that are not covered by the `Script` class — adding new UI tabs, reacting to model loads, intercepting image saves, and more. Register callbacks in module-level code (not inside a `Script` class) so they are registered when the module is imported.
+
+Import the callback registration functions from `modules.script_callbacks`:
+
+```python
+from modules import script_callbacks
+```
+
+### Lifecycle callbacks
+
+| Function | When it fires | Arguments |
+|---|---|---|
+| `on_app_started(fn)` | After the Gradio app and FastAPI server are ready | `demo: gr.Blocks`, `app: FastAPI` |
+| `on_before_reload(fn)` | Just before the server reloads scripts | none |
+| `on_model_loaded(fn)` | After a Stable Diffusion model is loaded or swapped | `sd_model` |
+| `on_script_unloaded(fn)` | Before scripts are unloaded (e.g. on reload) | none |
+| `on_before_ui(fn)` | Before the Gradio UI is constructed | none |
+
+### UI callbacks
+
+| Function | When it fires | Return value |
+|---|---|---|
+| `on_ui_tabs(fn)` | When the UI creates its top-level tabs | `list[tuple[gr.Blocks, title, elem_id]]` |
+| `on_ui_settings(fn)` | Before the Settings page is populated | none — call `shared.opts.add_option()` inside |
+| `on_ui_train_tabs(fn)` | When the Train tab creates sub-tabs | none |
+| `on_before_component(fn)` | Before any Gradio component is created | none |
+| `on_after_component(fn)` | After any Gradio component is created | none |
+
+### Image callbacks
+
+| Function | When it fires | Arguments |
+|---|---|---|
+| `on_before_image_saved(fn)` | Before an image is written to disk | `params: ImageSaveParams` (mutable) |
+| `on_image_saved(fn)` | After an image is written to disk | `params: ImageSaveParams` (read-only) |
+| `on_image_grid(fn)` | Before an image grid is assembled | `params: ImageGridLoopParams` (mutable) |
+| `on_infotext_pasted(fn)` | Before infotext parameters are applied | `infotext: str`, `params: dict` |
+
+### Sampling callbacks
+
+| Function | When it fires | Arguments |
+|---|---|---|
+| `on_cfg_denoiser(fn)` | Inside the CFG denoiser, before the inner model call | `params: CFGDenoiserParams` |
+| `on_cfg_denoised(fn)` | Inside the CFG denoiser, after the inner model call | `params: CFGDenoisedParams` |
+| `on_cfg_after_cfg(fn)` | After CFG calculations are complete | `params: AfterCFGCallbackParams` |
+| `on_extra_noise(fn)` | Before extra noise is added in img2img or hires fix | `params: ExtraNoiseParams` |
+
+### Other callbacks
+
+| Function | When it fires | Arguments |
+|---|---|---|
+| `on_list_optimizers(fn)` | When building the cross-attention optimizer list | `optimizers: list` (append to it) |
+| `on_list_unets(fn)` | When building the alternative UNet option list | `unets: list` (append to it) |
+| `on_before_token_counter(fn)` | Before the prompt token count is calculated | `params: BeforeTokenCounterParams` |
+
+## Adding a new UI tab
+
+Use `on_ui_tabs` to add a top-level tab to the web UI. The callback must return a list of `(gradio_component, title, elem_id)` tuples.
+
+```python
+import gradio as gr
+from modules import script_callbacks
+
+
+def on_ui_tabs():
+    with gr.Blocks(analytics_enabled=False) as my_tab:
+        with gr.Row():
+            gr.Markdown("## My Extension Tab")
+        with gr.Row():
+            input_text = gr.Textbox(label="Input")
+            output_text = gr.Textbox(label="Output", interactive=False)
+        run_btn = gr.Button("Run")
+        run_btn.click(fn=lambda x: x.upper(), inputs=input_text, outputs=output_text)
+
+    return [(my_tab, "My Extension", "my_extension_tab")]
+
+
+script_callbacks.on_ui_tabs(on_ui_tabs)
+```
+
+## Adding settings
+
+Use `on_ui_settings` to add entries to the **Settings** page. Access them later via `shared.opts`.
+
+```python
+from modules import script_callbacks, shared
+
+
+def on_ui_settings():
+    section = ("my_extension", "My Extension")
+    shared.opts.add_option(
+        "my_extension_strength",
+        shared.OptionInfo(
+            0.5,
+            "Default strength",
+            gr.Slider,
+            {"minimum": 0.0, "maximum": 1.0, "step": 0.01},
+            section=section,
+        ),
+    )
+
+
+script_callbacks.on_ui_settings(on_ui_settings)
+```
+
+## Minimal complete extension
+
+Below is a complete, minimal extension that adds an always-visible panel to txt2img and img2img, logs a message when the model is loaded, and adds a settings option.
+
+**`scripts/my_script.py`**
+
+```python
+import gradio as gr
+import modules.scripts as scripts
+from modules import script_callbacks, shared
+
+
+# ── Settings ──────────────────────────────────────────────────────────────────
+
+def on_ui_settings():
+    section = ("my_extension", "My Extension")
+    shared.opts.add_option(
+        "my_extension_enabled_by_default",
+        shared.OptionInfo(False, "Enable My Extension by default", section=section),
+    )
+
+
+script_callbacks.on_ui_settings(on_ui_settings)
+
+
+# ── Model load hook ───────────────────────────────────────────────────────────
+
+def on_model_loaded(sd_model):
+    print(f"[my-extension] model loaded: {sd_model.sd_checkpoint_info.title}")
+
+
+script_callbacks.on_model_loaded(on_model_loaded)
+
+
+# ── Script ────────────────────────────────────────────────────────────────────
+
+class MyExtensionScript(scripts.Script):
+
+    def title(self):
+        return "My Extension"
+
+    def show(self, is_img2img):
+        return scripts.AlwaysVisible
+
+    def ui(self, is_img2img):
+        default = getattr(shared.opts, "my_extension_enabled_by_default", False)
+        with gr.Accordion("My Extension", open=False):
+            enabled = gr.Checkbox(label="Enable", value=default)
+            strength = gr.Slider(
+                label="Strength", minimum=0.0, maximum=1.0, step=0.01, value=0.5
+            )
+        return [enabled, strength]
+
+    def process(self, p, enabled, strength):
+        if not enabled:
+            return
+        p.extra_generation_params["My Extension strength"] = strength
+```
+
+## metadata.ini format
+
+```ini
+[Extension]
+# Canonical name used for deduplication and dependency resolution.
+# If omitted, the directory name is used.
+Name = my-extension
+
+# Comma- or space-separated list of other extensions that must be
+# installed and enabled. Use canonical names (directory name, lowercase).
+Requires = sd-webui-controlnet
+
+# Control callback execution order relative to another extension.
+[callbacks/my-extension/scripts/my_script.py/cfg_denoiser]
+Before = sd-webui-controlnet
+After = base
+```
+
+The `[callbacks/...]` section name must include the extension's own canonical name. Both `Before` and `After` accept comma- or space-separated lists of canonical extension names.

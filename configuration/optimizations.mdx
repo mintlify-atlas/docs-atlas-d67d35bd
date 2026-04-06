@@ -1,0 +1,361 @@
+---
+title: "Performance Optimizations"
+description: "Configure the web UI for your GPU or CPU to maximize speed and minimize VRAM usage."
+---
+
+The web UI ships with several optimizations that can substantially reduce VRAM usage and increase generation speed. The right combination depends on your GPU model, available VRAM, and whether you are on Nvidia, AMD, Intel, or CPU-only.
+
+---
+
+## Quick reference by hardware
+
+<Tabs>
+  <Tab title="Nvidia (8 GB+ VRAM)">
+    ```bash webui-user.sh
+    export COMMANDLINE_ARGS="--xformers"
+    ```
+    xformers provides the best speed improvement on Nvidia hardware without sacrificing quality. No VRAM management flags are needed for SD 1.5 models at standard resolutions.
+
+    For SDXL on 8 GB:
+    ```bash webui-user.sh
+    export COMMANDLINE_ARGS="--xformers --medvram-sdxl"
+    ```
+  </Tab>
+  <Tab title="Nvidia (4–6 GB VRAM)">
+    ```bash webui-user.sh
+    export COMMANDLINE_ARGS="--xformers --medvram"
+    ```
+    `--medvram` splits the model across VRAM and RAM, allowing generation at the cost of some speed.
+  </Tab>
+  <Tab title="Nvidia (2–4 GB VRAM)">
+    ```bash webui-user.sh
+    export COMMANDLINE_ARGS="--lowvram"
+    ```
+    `--lowvram` keeps only one model component in VRAM at a time. Generation is much slower but works on very limited hardware.
+  </Tab>
+  <Tab title="AMD">
+    ```bash webui-user.sh
+    export COMMANDLINE_ARGS="--precision full --no-half"
+    ```
+    Most AMD GPUs on Linux via ROCm require `--precision full --no-half` to avoid black or corrupted images. If images are fine without `--no-half`, add `--no-half-vae` only to prevent black outputs from the VAE.
+  </Tab>
+  <Tab title="Intel Arc / Xe">
+    ```bash webui-user.sh
+    export COMMANDLINE_ARGS="--use-ipex"
+    ```
+    Intel GPUs require Intel Extension for PyTorch (IPEX). Install it according to the Intel documentation before adding this flag.
+  </Tab>
+  <Tab title="CPU only">
+    ```bash webui-user.sh
+    export COMMANDLINE_ARGS="--use-cpu all --no-half --precision full"
+    ```
+    CPU generation is very slow. Expect several minutes per image. `--no-half` and `--precision full` are required because most CPUs do not support `float16`.
+  </Tab>
+</Tabs>
+
+---
+
+## xformers
+
+xformers provides memory-efficient attention for cross-attention layers. On Nvidia GPUs it typically produces a **10–30% speed increase** and a meaningful reduction in VRAM usage compared to the built-in attention implementation.
+
+### Installation
+
+xformers is installed automatically when you run `webui.py` if your system has a compatible Nvidia GPU. To force a reinstall of the correct version:
+
+```bash
+python launch.py --reinstall-xformers
+```
+
+Or from the command-line argument at startup:
+
+```bash
+python webui.py --reinstall-xformers
+```
+
+### Enabling xformers
+
+<ParamField path="--xformers" type="flag">
+  Enables xformers memory-efficient attention. This is the standard flag for compatible Nvidia GPUs.
+</ParamField>
+
+<ParamField path="--force-enable-xformers" type="flag">
+  Bypasses compatibility checks and forces xformers on regardless. Use only when the automatic check produces a false negative and you have confirmed xformers works on your system.
+</ParamField>
+
+<ParamField path="--xformers-flash-attention" type="flag">
+  Enables xformers with Flash Attention for improved reproducibility. Only supported for SD 2.x and its variants.
+</ParamField>
+
+<Note>
+  xformers produces slightly different images compared to the built-in attention implementation, even with the same seed. This is expected behavior.
+</Note>
+
+---
+
+## Attention optimizations
+
+If xformers is not available or not desired, the web UI includes several built-in attention optimizations. By default it automatically selects the best option for your hardware. You can override the automatic choice with these flags.
+
+<AccordionGroup>
+  <Accordion title="--opt-sdp-attention (recommended for PyTorch 2+)">
+    Uses PyTorch's native scaled dot-product attention (SDPA), available in PyTorch 2.0 and later. On modern Nvidia hardware this performs comparably to xformers without a separate package dependency.
+
+    ```bash
+    --opt-sdp-attention
+    ```
+
+    For fully deterministic output across runs:
+
+    ```bash
+    --opt-sdp-no-mem-attention
+    ```
+
+    `--opt-sdp-no-mem-attention` disables the memory-efficient path within SDPA, producing the same image regardless of batch size. Slightly slower and uses more VRAM than `--opt-sdp-attention`.
+  </Accordion>
+
+  <Accordion title="--opt-split-attention (Doggettx)">
+    Splits attention computation into smaller chunks to reduce peak VRAM usage. This was the primary optimization before xformers and PyTorch 2 SDPA became widely available.
+
+    ```bash
+    --opt-split-attention
+    ```
+
+    Variants:
+    - `--opt-split-attention-invokeai` — InvokeAI's implementation of split attention.
+    - `--opt-split-attention-v1` — The original older implementation.
+  </Accordion>
+
+  <Accordion title="--opt-sub-quad-attention">
+    Memory-efficient sub-quadratic attention. Reduces VRAM use at the cost of some speed. Useful on hardware where split attention or SDPA cause issues.
+
+    ```bash
+    --opt-sub-quad-attention
+    ```
+
+    You can tune performance with the chunk size arguments:
+
+    ```bash
+    --opt-sub-quad-attention --sub-quad-q-chunk-size 512 --sub-quad-kv-chunk-size 512
+    ```
+
+    Smaller chunk sizes reduce VRAM pressure further at the cost of more overhead.
+  </Accordion>
+
+  <Accordion title="--disable-opt-split-attention">
+    Disables all attention optimizations and uses PyTorch's default attention implementation. Only useful for debugging or comparing outputs.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## VRAM management tiers
+
+The web UI has three operating modes for managing how much of the model lives in VRAM at any time.
+
+### Full (no flags)
+
+The entire model is loaded into VRAM and stays there. All components are available for parallel processing.
+
+- **Requires:** ~5–6 GB VRAM for SD 1.5, ~8–10 GB for SDXL.
+- **Speed:** Fastest.
+- **When to use:** If you have sufficient VRAM and do not need to run other GPU workloads simultaneously.
+
+### `--medvram`
+
+The model is split so that only the currently active component (text encoder, UNet, or VAE) is in VRAM. The other components move to RAM between passes.
+
+```bash
+export COMMANDLINE_ARGS="--medvram"
+```
+
+- **Requires:** ~2–3 GB VRAM for SD 1.5.
+- **Speed:** Moderate — the data transfer between RAM and VRAM adds overhead, but generation still completes in reasonable time.
+- **When to use:** 4–6 GB GPUs, or when you want to leave VRAM headroom for other applications.
+
+`--medvram-sdxl` applies the same optimization only when an SDXL model is active, leaving SD 1.5 models running at full speed.
+
+```bash
+export COMMANDLINE_ARGS="--medvram-sdxl"
+```
+
+### `--lowvram`
+
+Only one sub-component of the model is in VRAM at a time. The `lowvram.py` module implements this using PyTorch forward hooks: each component is moved to GPU immediately before its forward pass, then returned to CPU. This is the implementation in `modules/lowvram.py`.
+
+```bash
+export COMMANDLINE_ARGS="--lowvram"
+```
+
+- **Requires:** ~1–2 GB VRAM.
+- **Speed:** Significantly slower than `--medvram` due to frequent host-device transfers.
+- **When to use:** GPUs with less than 4 GB VRAM, or shared GPU environments.
+
+<Warning>
+  When `--lowvram` or `--medvram` is active, live preview using the `Full` method is disabled by default because it competes with generation for the limited VRAM. The `Approx NN` method is used instead. You can override this in Settings → Live previews → **Allow Full live preview method with lowvram/medvram**, but expect a substantial speed hit.
+</Warning>
+
+---
+
+## Float precision flags
+
+### `--no-half`
+
+Keeps all model weights in 32-bit float (`float32`) instead of the default 16-bit (`float16`).
+
+```bash
+export COMMANDLINE_ARGS="--no-half"
+```
+
+- **When to use:** AMD GPUs on ROCm where `float16` produces black or corrupted images. Some older Nvidia cards (Maxwell or older) may also need this.
+- **Cost:** Roughly doubles VRAM usage for the model weights. Generation may be slower.
+- **Note:** `--upcast-sampling` has no effect when `--no-half` is set, since the model is already in full precision.
+
+### `--no-half-vae`
+
+Keeps only the VAE in `float32` while the rest of the model uses `float16`.
+
+```bash
+export COMMANDLINE_ARGS="--no-half-vae"
+```
+
+- **When to use:** When images produce correctly during diffusion but the final decoded output is black or heavily corrupted. Common on some AMD GPUs.
+- **Cost:** Lower VRAM impact than `--no-half` since only the VAE is affected.
+
+<Tip>
+  Try `--no-half-vae` before `--no-half` on AMD. If it fixes the black image problem, you retain `float16` speed for the rest of the model.
+</Tip>
+
+---
+
+## `--precision`
+
+Controls the overall evaluation precision of the model.
+
+<ParamField path="--precision" type="string" default="autocast">
+  Choices: `autocast`, `full`, `half`.
+
+  - `autocast` — Uses `float32` where numerically necessary and `float16` elsewhere. This is the default and recommended setting for most GPUs.
+  - `full` — Forces all operations to `float32`. Equivalent in behavior to running with `--no-half` and `--precision full` together. Required for AMD and CPU-only setups.
+  - `half` — Forces `float16` throughout. Not recommended; may produce inferior results compared to `autocast`.
+</ParamField>
+
+For AMD GPUs or CPU generation, use:
+
+```bash
+export COMMANDLINE_ARGS="--precision full --no-half"
+```
+
+---
+
+## `--upcast-sampling`
+
+Upcasts sampling computations to `float32` while keeping model weights in `float16`.
+
+```bash
+export COMMANDLINE_ARGS="--upcast-sampling"
+```
+
+- **Effect:** Produces results similar to `--no-half` in quality while using less VRAM and running faster.
+- **When to use:** When you see artifacts or inconsistencies that `--no-half` fixes, but you want to retain most of the performance of `float16`.
+- **Note:** Has no effect if `--no-half` is already set — the model is already in full precision.
+
+---
+
+## `--opt-channelslast`
+
+Changes the memory layout of stable diffusion tensors from the default `NCHW` (channels first) to `NHWC` (channels last).
+
+```bash
+export COMMANDLINE_ARGS="--opt-channelslast"
+```
+
+On some Nvidia Ampere and later GPUs, channels-last layout enables more efficient tensor core utilization and can improve throughput. On other hardware the effect is neutral or slightly negative. Test with and without to determine if it benefits your specific card.
+
+---
+
+## CPU-only mode
+
+To run entirely on CPU without any GPU:
+
+```bash
+export COMMANDLINE_ARGS="--use-cpu all --no-half --precision full"
+```
+
+`--use-cpu all` directs all torch operations to the CPU. `--no-half` and `--precision full` are required because CPU computation does not support `float16` in most configurations.
+
+<Warning>
+  CPU generation is extremely slow — expect 5–30 minutes per image depending on your processor and the resolution. Use a GPU whenever possible.
+</Warning>
+
+You can also direct specific modules to CPU while keeping the main model on GPU:
+
+```bash
+--use-cpu interrogate
+```
+
+---
+
+## Intel GPU (`--use-ipex`)
+
+Intel Arc and Iris Xe GPUs are supported via Intel Extension for PyTorch (IPEX).
+
+```bash
+export COMMANDLINE_ARGS="--use-ipex"
+```
+
+Before adding this flag, install IPEX according to Intel's documentation for your platform and PyTorch version. The web UI does not install IPEX automatically.
+
+---
+
+## Token merging (ToMe)
+
+Token merging reduces the number of attention tokens during generation by merging similar tokens together. It is configured in the **Settings** tab rather than via command-line flags.
+
+| Setting | Range | Effect |
+|---|---|---|
+| `token_merging_ratio` | 0.0–0.9 | Global ratio. `0` = disabled. Higher = faster but lower quality. |
+| `token_merging_ratio_img2img` | 0.0–0.9 | Override for img2img only. |
+| `token_merging_ratio_hr` | 0.0–0.9 | Override for the highres fix second pass. |
+
+A ratio of `0.3–0.5` provides a noticeable speed increase with minimal visible quality loss on most prompts. The highres pass often tolerates a higher ratio than the base pass.
+
+---
+
+## FP8 weight storage
+
+For PyTorch 2.1 and later, the web UI can store model weights in 8-bit float format (`FP8`), reducing VRAM use further.
+
+Configured in **Settings → Optimizations → FP8 weight**:
+
+- `Disable` — Default. Weights stored in `float16`.
+- `Enable for SDXL` — FP8 only for SDXL models.
+- `Enable` — FP8 for all models.
+
+Enabling `Cache FP16 weight for LoRA` alongside FP8 caches the full-precision weights in system RAM to improve LoRA quality at the cost of additional RAM usage.
+
+---
+
+## Combining optimizations
+
+Flags can be combined freely. A typical high-performance setup for an Nvidia GPU with 8 GB VRAM running SDXL:
+
+```bash webui-user.sh
+export COMMANDLINE_ARGS="--xformers --medvram-sdxl --opt-channelslast"
+```
+
+A setup for a 4 GB Nvidia card:
+
+```bash webui-user.sh
+export COMMANDLINE_ARGS="--xformers --medvram"
+```
+
+A setup for an AMD GPU:
+
+```bash webui-user.sh
+export COMMANDLINE_ARGS="--precision full --no-half-vae --opt-split-attention"
+```
+
+<Note>
+  `--xformers` and `--opt-sdp-attention` are mutually exclusive — xformers takes priority when both are specified. If xformers is installed and working, there is no benefit to also setting an `--opt-*` attention flag.
+</Note>

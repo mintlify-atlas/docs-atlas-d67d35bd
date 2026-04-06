@@ -1,0 +1,108 @@
+---
+title: "Image to Image"
+description: "Transform existing images using prompts and denoising."
+---
+
+Image-to-image (img2img) starts from an existing image rather than pure noise. A prompt guides how the image is transformed, and `denoising_strength` controls how much the original is preserved. The core processing type is `StableDiffusionProcessingImg2Img`.
+
+## Modes
+
+The `mode` parameter in `img2img.py` selects which input panel is active:
+
+| Mode | Value | Description |
+|------|-------|-------------|
+| img2img | `0` | Standard image-to-image with `init_img` |
+| Sketch | `1` | Draw on a blank canvas; uses `sketch` input |
+| Inpaint | `2` | Paint a mask over `init_img_with_mask` |
+| Inpaint sketch | `3` | Draw the replacement content directly over the masked area |
+| Inpaint upload | `4` | Provide the mask as a separate uploaded image |
+| Batch | `5` | Process a folder or list of images |
+
+## Denoising strength
+
+`denoising_strength` is a float in `[0.0, 1.0]` and is the most important img2img parameter:
+
+- **0.0** — the output is identical to the input; no denoising occurs
+- **1.0** — the input is completely ignored; the result is equivalent to txt2img
+- **0.5–0.75** — typical range for meaningful transformation while preserving composition
+
+<Warning>
+Values outside `[0.0, 1.0]` are rejected with an assertion error in `img2img.py`.
+</Warning>
+
+## Resize modes
+
+`resize_mode` controls how the input image is resized to match `width` and `height`:
+
+| Value | Behavior |
+|-------|----------|
+| `0` | Just resize — stretches the image to exactly `width × height` |
+| `1` | Crop and resize — resizes to fill, then center-crops |
+| `2` | Resize and fill — resizes to fit, then pads the remaining area |
+| `3` | Just resize (latent upscale) — same as 0 but using latent space |
+
+Alternatively, enable **Scale by** (`selected_scale_tab == 1`) and set `scale_by` to a multiplier. The output dimensions are computed as `int(image.width * scale_by) × int(image.height * scale_by)`.
+
+## Inpaint sketch mode
+
+In mode `3` (inpaint sketch), you paint directly over the image with the target color. The mask is derived by comparing the edited canvas (`inpaint_color_sketch`) against the original (`inpaint_color_sketch_orig`):
+
+```python
+pred = np.any(np.array(image) != np.array(orig), axis=-1)
+mask = Image.fromarray(pred.astype(np.uint8) * 255, "L")
+```
+
+`mask_alpha` controls the softness of the derived mask edge. A Gaussian blur with radius `mask_blur` is then applied to feather the boundary, and the painted content is composited onto the original before being passed to the model.
+
+## CFG scale and image CFG scale
+
+In standard img2img, `cfg_scale` functions identically to txt2img. When using InstructPix2Pix-style models, `image_cfg_scale` provides an additional conditioning weight on the input image.
+
+## Batch img2img
+
+Mode `5` activates batch processing via `process_batch`. You can supply a directory path or a list of uploaded files:
+
+- `img2img_batch_input_dir` — source directory (requires `--hide-ui-dir-config` to be off)
+- `img2img_batch_output_dir` — where processed images are saved
+- `img2img_batch_inpaint_mask_dir` — optional directory of mask images matched by filename stem
+- `img2img_batch_use_png_info` — re-use generation parameters stored in each image's PNG metadata
+- `img2img_batch_png_info_props` — which fields to pull from PNG info (Prompt, Seed, CFG scale, Sampler, Steps)
+- `img2img_batch_png_info_dir` — read PNG info from a separate directory instead of the source images
+
+When `img2img_batch_use_png_info` is enabled and a matching model hash is found in the PNG metadata, the override settings are updated to load that checkpoint automatically.
+
+<Note>
+Output filenames in batch mode follow the source filename. With multiple iterations (`n_iter > 1`) or batch size > 1, a `[generation_number]` suffix is appended.
+</Note>
+
+## Loopback script
+
+The **Loopback** script (`scripts/loopback.py`) feeds each generation's output back as the input for the next iteration, creating progressive transformation chains.
+
+Key parameters:
+
+| Parameter | Description |
+|-----------|-------------|
+| `loops` | Number of iterations (1–32) |
+| `final_denoising_strength` | Target denoising strength at the last loop |
+| `denoising_curve` | Interpolation between initial and final strength: `Aggressive`, `Linear`, or `Lazy` |
+| `append_interrogation` | Optionally re-interrogate the image at each step using `CLIP` or `DeepBooru` and append the result to the prompt |
+
+<Tip>
+Use a low initial `denoising_strength` (e.g. `0.4`) with a `Linear` curve and `final_denoising_strength` around `0.6` for gradual stylistic drift without losing the original composition.
+</Tip>
+
+## img2img alternative (reverse Euler)
+
+The **img2img alternative test** script (`scripts/img2imgalt.py`) implements an inverse diffusion approach. Rather than adding noise to the input and then denoising, it uses `find_noise_for_image` to reverse the Euler ODE and recover the noise latent that would produce the input image under the given prompt and CFG scale. This recovered noise is then used as the starting point for a forward pass, enabling more faithful prompt-guided edits.
+
+The approach uses `k_diffusion` sigmas in reverse order and is sensitive to the Euler step count and CFG scale used during inversion.
+
+<AccordionGroup>
+  <Accordion title="Supported image formats in batch mode">
+    Batch processing accepts `.png`, `.jpg`, `.jpeg`, `.webp`, `.tif`, and `.tiff`. Files are iterated in filesystem order. EXIF orientation is applied automatically via `ImageOps.exif_transpose`.
+  </Accordion>
+  <Accordion title="Color correction">
+    When chaining iterations in Loopback, color drift can occur. The script initializes color correction targets using `processing.setup_color_correction` on the first image in each batch and applies histogram matching via `apply_color_correction` during subsequent loops to reduce drift.
+  </Accordion>
+</AccordionGroup>

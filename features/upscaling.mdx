@@ -1,0 +1,127 @@
+---
+title: "Upscaling"
+description: "Enhance image resolution with neural network upscalers."
+---
+
+The webui provides several upscaling paths: the **Extras** tab for post-processing generated or imported images, the **SD Upscale** script for diffusion-guided tile upscaling, and **Highres fix** baked into txt2img. Face restoration is applied as a post-processing step in the same pipeline.
+
+## Extras tab
+
+The Extras tab (`scripts/postprocessing_upscale.py`) is the primary interface for upscaling images without running new diffusion. It accepts single images or batches.
+
+### Scale modes
+
+<Tabs>
+  <Tab title="Scale by">
+    Set `upscale_by` (1.0–8.0) to multiply the image dimensions. For example, a `512 × 512` image at scale `4.0` becomes `2048 × 2048`.
+
+    Set `max_side_length` to cap the output. If either dimension would exceed the limit, the image is downscaled to fit while preserving aspect ratio.
+  </Tab>
+  <Tab title="Scale to">
+    Set explicit `upscale_to_width` and `upscale_to_height` targets (64–8192, step 8).
+
+    Enable `upscale_crop` to center-crop the result to exactly the target dimensions after upscaling.
+  </Tab>
+</Tabs>
+
+### Dual upscaler blending
+
+The Extras tab supports running two upscalers in sequence and blending the results:
+
+- **Upscaler 1** — applied first; the primary upscaler
+- **Upscaler 2** — applied independently to the same source image
+- **Upscaler 2 visibility** (0.0–1.0) — alpha blend weight toward upscaler 2's output (`Image.blend`)
+
+Setting `upscaler_2_visibility` to `0.0` effectively disables upscaler 2.
+
+## Available upscalers
+
+The `Upscaler` base class in `upscaler.py` defines the interface. Concrete implementations are loaded as plugins. The upscaler list is accessed via `shared.sd_upscalers`.
+
+<CardGroup cols={2}>
+  <Card title="None">
+    Returns the image unmodified. Useful as a no-op placeholder.
+  </Card>
+  <Card title="Lanczos">
+    High-quality traditional resampling. No neural network; fast and lossless in character. Uses `Image.Resampling.LANCZOS`.
+  </Card>
+  <Card title="Nearest">
+    Nearest-neighbor resampling. Preserves hard pixel edges. Uses `Image.Resampling.NEAREST`.
+  </Card>
+  <Card title="ESRGAN">
+    Enhanced Super-Resolution GAN. Supports custom `.pth` model files placed in `models/ESRGAN/`. The `ESRGAN_tile` and `ESRGAN_tile_overlap` settings in options control tile size and overlap.
+  </Card>
+  <Card title="RealESRGAN">
+    Variant of ESRGAN trained for real-world photograph degradation. Typically paired with `RealESRGAN_x4plus.pth` or `RealESRGAN_x4plus_anime_6B.pth`.
+  </Card>
+  <Card title="SwinIR">
+    Transformer-based upscaler. Place `.pth` models in `models/SwinIR/`.
+  </Card>
+  <Card title="LDSR">
+    Latent Diffusion Super Resolution. Runs a diffusion model to hallucinate detail. Slowest option; place model files in `models/LDSR/`.
+  </Card>
+  <Card title="ScuNET">
+    Denoising network that can be chained with upscaling. Place `.pth` models in `models/ScuNET/`.
+  </Card>
+</CardGroup>
+
+The `Upscaler.upscale` method loops up to three times until the target dimensions are reached, then does a final Lanczos resize to exact pixel counts:
+
+```python
+dest_w = int((img.width * scale) // 8 * 8)
+dest_h = int((img.height * scale) // 8 * 8)
+```
+
+<Note>
+Output dimensions from the `Upscaler` base class are snapped to multiples of 8, matching the latent space compression factor.
+</Note>
+
+## SD Upscale script
+
+The **SD upscale** script (`scripts/sd_upscale.py`) combines a neural upscaler with a diffusion pass for detail enhancement. It is available in the img2img **Script** dropdown.
+
+<Steps>
+  <Step title="Upload an image to img2img">
+    The source image will be upscaled and then processed through the diffusion model in tiles.
+  </Step>
+  <Step title="Configure the script">
+    | Parameter | Range | Description |
+    |-----------|-------|-------------|
+    | `Tile overlap` | 0–256, step 16 | Pixel overlap between adjacent tiles; reduces seams |
+    | `Scale Factor` | 1.0–4.0, step 0.05 | How much to upscale before tiling |
+    | `Upscaler` | any available | Which upscaler to apply before the diffusion pass |
+  </Step>
+  <Step title="Set width and height">
+    In the main img2img controls, `width` and `height` define the tile size for the diffusion pass, not the final output dimensions.
+  </Step>
+  <Step title="Configure denoising">
+    Set `denoising_strength` to control how much the diffusion pass modifies each tile. Values of `0.2–0.4` add detail without dramatically changing content.
+  </Step>
+</Steps>
+
+The script calls `images.split_grid` to divide the upscaled image into overlapping tiles, runs the img2img diffusion pipeline on each tile independently, then recombines them.
+
+## Highres fix
+
+Highres fix is a txt2img feature (see the [Text to Image](/features/txt2img) page for full details) that internally uses upscaling before a second diffusion pass. The `hr_upscaler` parameter accepts any upscaler name from `shared.sd_upscalers`, as well as latent upscale modes (`Latent`, `Latent (antialiased)`, `Latent (bicubic)`, etc.).
+
+## Face restoration
+
+Face restoration is applied as a post-processing step after generation. Two backends are supported:
+
+<Tabs>
+  <Tab title="GFPGAN">
+    GAN-based face restoration. Set `restore_faces=True` in the processing object and configure the model via **Settings → Face restoration**. GFPGAN models are placed in `models/GFPGAN/`.
+  </Tab>
+  <Tab title="CodeFormer">
+    Transformer-based face restoration with explicit fidelity control. The `codeformer_weight` setting (0.0–1.0) balances fidelity to the input face against CodeFormer's quality enhancement; lower values prioritize quality over faithfulness.
+
+    CodeFormer models are placed in `models/CodeFormer/`.
+  </Tab>
+</Tabs>
+
+Face restoration can be toggled per generation via the `restore_faces` parameter in `StableDiffusionProcessing`. It can also be applied retroactively in the Extras tab through the **postprocessing_codeformer.py** and **postprocessing_gfpgan.py** scripts.
+
+<Tip>
+In the X/Y/Z plot, use the **Face restore** axis type to compare `GFPGAN`, `CodeFormer`, and no restoration side by side on the same generation.
+</Tip>

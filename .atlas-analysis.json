@@ -1,0 +1,115 @@
+{
+  "projectType": "saas",
+  "projectName": "Stable Diffusion Web UI",
+  "projectDescription": "A feature-rich web interface for Stable Diffusion AI image generation, supporting txt2img, img2img, inpainting, upscaling, extensions, and a REST API.",
+  "theme": "palm",
+  "primaryColor": "#7C3AED",
+  "lightColor": "#EDE9FE",
+  "darkColor": "#4C1D95",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/txt2img",
+              "features/img2img",
+              "features/inpainting",
+              "features/upscaling",
+              "features/extra-networks"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/command-line-args",
+              "configuration/settings",
+              "configuration/optimizations"
+            ]
+          },
+          {
+            "group": "Extensions",
+            "pages": [
+              "extensions/overview",
+              "extensions/installing",
+              "extensions/developing"
+            ]
+          },
+          {
+            "group": "Training",
+            "pages": [
+              "training/textual-inversion",
+              "training/hypernetworks"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/txt2img",
+              "api/img2img",
+              "api/extras",
+              "api/models",
+              "api/options"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Text-to-image generation (txt2img) with advanced prompt controls",
+    "Image-to-image transformation with multiple modes (img2img, inpainting, outpainting)",
+    "Built-in upscalers: RealESRGAN, ESRGAN, LDSR, SwinIR, and more",
+    "Textual Inversion and LoRA / Hypernetwork support for custom model fine-tuning",
+    "Extension system for community plugins and customizations",
+    "REST API (FastAPI-based) for programmatic image generation",
+    "X/Y/Z plot grids for parameter comparison",
+    "Checkpoint merging and VAE selection",
+    "Low VRAM optimizations for 4GB+ GPUs",
+    "CLIP interrogator for reverse-engineering prompts from images"
+  ],
+  "publicApiSurface": [
+    "POST /sdapi/v1/txt2img",
+    "POST /sdapi/v1/img2img",
+    "POST /sdapi/v1/extra-single-image",
+    "POST /sdapi/v1/extra-batch-images",
+    "POST /sdapi/v1/png-info",
+    "GET  /sdapi/v1/progress",
+    "POST /sdapi/v1/interrogate",
+    "POST /sdapi/v1/interrupt",
+    "GET  /sdapi/v1/options",
+    "POST /sdapi/v1/options",
+    "GET  /sdapi/v1/samplers",
+    "GET  /sdapi/v1/schedulers",
+    "GET  /sdapi/v1/upscalers",
+    "GET  /sdapi/v1/sd-models",
+    "GET  /sdapi/v1/sd-vae",
+    "POST /sdapi/v1/refresh-checkpoints",
+    "GET  /sdapi/v1/embeddings",
+    "POST /sdapi/v1/create/embedding",
+    "POST /sdapi/v1/train/embedding",
+    "GET  /sdapi/v1/extensions"
+  ]
+}

@@ -1,0 +1,137 @@
+---
+title: "API Authentication"
+description: "Secure the Stable Diffusion web UI API with HTTP Basic Authentication."
+keywords: ["api", "authentication", "basic auth", "security", "api-auth"]
+---
+
+By default the API accepts requests from anyone without credentials. If you expose the server on a network you do not fully control, you should enable authentication.
+
+## Enabling authentication
+
+Pass `--api-auth` at startup with one or more `username:password` pairs.
+
+<Steps>
+  <Step title="Start the server with credentials">
+    ```bash
+    python webui.py --api --api-auth alice:s3cr3t
+    ```
+
+    The server will now require HTTP Basic Auth on every `/sdapi/v1/*` request.
+  </Step>
+  <Step title="Send requests with credentials">
+    Include the credentials in every API call using standard HTTP Basic Auth.
+
+    <CodeGroup>
+
+    ```bash curl
+    curl http://127.0.0.1:7860/sdapi/v1/txt2img \
+      -u alice:s3cr3t \
+      -H "Content-Type: application/json" \
+      -d '{
+        "prompt": "a photo of a cat sitting on a windowsill",
+        "steps": 20
+      }'
+    ```
+
+    ```python Python
+    import requests
+
+    response = requests.post(
+        "http://127.0.0.1:7860/sdapi/v1/txt2img",
+        auth=("alice", "s3cr3t"),
+        json={
+            "prompt": "a photo of a cat sitting on a windowsill",
+            "steps": 20,
+        },
+    )
+    ```
+
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## Multiple users
+
+Provide a comma-separated list of `username:password` pairs to allow more than one user:
+
+```bash
+python webui.py --api --api-auth alice:s3cr3t,bob:hunter2,carol:p@ssw0rd
+```
+
+Each user authenticates independently with their own credentials. The server parses the list at startup from `modules/api/api.py`:
+
+```python
+for auth in shared.cmd_opts.api_auth.split(","):
+    user, password = auth.split(":")
+    self.credentials[user] = password
+```
+
+## How authentication works
+
+When `--api-auth` is set, every route registered in the API is wrapped with a FastAPI dependency that validates HTTP Basic Auth credentials:
+
+```python
+def auth(self, credentials: HTTPBasicCredentials = Depends(HTTPBasic())):
+    if credentials.username in self.credentials:
+        if compare_digest(credentials.password, self.credentials[credentials.username]):
+            return True
+
+    raise HTTPException(status_code=401, detail="Incorrect username or password", headers={"WWW-Authenticate": "Basic"})
+```
+
+The comparison uses `secrets.compare_digest` to prevent timing attacks.
+
+## Unauthenticated request response
+
+When authentication is enabled and a request is missing or has incorrect credentials, the server returns:
+
+```json
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Basic
+
+{
+  "error": "HTTPException",
+  "detail": "Incorrect username or password",
+  "body": "",
+  "errors": "401: Incorrect username or password"
+}
+```
+
+## Logging API requests
+
+Use `--api-log` to print a timestamped log line to the console for every request to an `/sdapi` endpoint:
+
+```bash
+python webui.py --api --api-auth alice:s3cr3t --api-log
+```
+
+Example log output:
+
+```
+API 2024-01-15 12:34:56.789012 200 http/1.1 POST /sdapi/v1/txt2img 127.0.0.1 0.8341
+```
+
+## Security recommendations
+
+<Warning>
+  HTTP Basic Auth sends credentials with every request. Without HTTPS, anyone on the same network can read them.
+</Warning>
+
+<Tip>
+  TLS is supported natively. Pass `--tls-keyfile` and `--tls-certfile` together to enable HTTPS:
+
+  ```bash
+  python webui.py --api \
+    --api-auth alice:s3cr3t \
+    --tls-keyfile /path/to/key.pem \
+    --tls-certfile /path/to/cert.pem
+  ```
+
+  Once enabled, use `https://` in all request URLs.
+</Tip>
+
+Additional hardening options:
+
+- `--cors-allow-origins` — restrict which browser origins may call the API (comma-separated list)
+- `--cors-allow-origins-regex` — restrict origins via a regular expression
+- Avoid using `--listen` unless you specifically need to accept connections from other machines

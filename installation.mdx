@@ -1,0 +1,259 @@
+---
+title: "Installation"
+description: "Install Stable Diffusion web UI on Windows, Linux, or macOS."
+---
+
+## Prerequisites
+
+Before installing, make sure you have the following tools available:
+
+- **Python 3.10.6** — Python 3.10 is the tested and recommended version. On Windows, newer Python versions do not support the required version of PyTorch. When installing on Windows, check **Add Python to PATH** during setup.
+- **git** — Used to clone the repository and manage dependencies.
+
+<Warning>
+  On Windows, Python 3.10.6 is specifically required. Newer Python versions will fail when installing torch. You can download it from [python.org/downloads/release/python-3106](https://www.python.org/downloads/release/python-3106/).
+</Warning>
+
+---
+
+## Installation
+
+<Tabs>
+  <Tab title="Windows">
+    There are two ways to install on Windows: using the pre-built release package (easiest), or cloning the repository and running the automatic install script.
+
+    ### Option A: Release package (recommended for NVIDIA GPUs)
+
+    <Steps>
+      <Step title="Download the release package">
+        Download `sd.webui.zip` from the [v1.0.0-pre release](https://github.com/AUTOMATIC1111/stable-diffusion-webui/releases/tag/v1.0.0-pre) and extract its contents to a folder of your choice.
+      </Step>
+      <Step title="Update to the latest version">
+        Run `update.bat` inside the extracted folder. This fetches the latest code from the repository.
+      </Step>
+      <Step title="Start the web UI">
+        Run `run.bat`. The script will install all Python dependencies on first launch and then start the server.
+      </Step>
+    </Steps>
+
+    ### Option B: Automatic installation from source
+
+    <Steps>
+      <Step title="Install Python 3.10.6">
+        Download and install [Python 3.10.6](https://www.python.org/downloads/release/python-3106/). During installation, check the **Add Python to PATH** option.
+      </Step>
+      <Step title="Install git">
+        Download and install [git for Windows](https://git-scm.com/download/win).
+      </Step>
+      <Step title="Clone the repository">
+        Open a terminal and run:
+
+        ```bat
+        git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui.git
+        ```
+      </Step>
+      <Step title="Launch the web UI">
+        Open the `stable-diffusion-webui` folder in Windows Explorer and double-click `webui-user.bat`. Run it as a **normal user, not as administrator**. The script installs all dependencies automatically on the first run.
+      </Step>
+    </Steps>
+
+    <Note>
+      The `webui-user.bat` file is where you configure environment variables and command-line arguments. Open it in a text editor to set options such as `COMMANDLINE_ARGS`.
+    </Note>
+
+    ```bat title="webui-user.bat"
+    @echo off
+
+    set PYTHON=
+    set GIT=
+    set VENV_DIR=
+    set COMMANDLINE_ARGS=
+
+    call webui.bat
+    ```
+  </Tab>
+
+  <Tab title="Linux">
+    <Steps>
+      <Step title="Install system dependencies">
+        Install the required packages for your distribution:
+
+        <CodeGroup>
+
+        ```bash Debian / Ubuntu
+        sudo apt install wget git python3 python3-venv libgl1 libglib2.0-0
+        ```
+
+        ```bash Red Hat / Fedora
+        sudo dnf install wget git python3 gperftools-libs libglvnd-glx
+        ```
+
+        ```bash openSUSE
+        sudo zypper install wget git python3 libtcmalloc4 libglvnd
+        ```
+
+        ```bash Arch Linux
+        sudo pacman -S wget git python3
+        ```
+
+        </CodeGroup>
+
+        <Note>
+          If your system ships a Python version newer than 3.11 by default (for example, Ubuntu 24.04), you may need to install Python 3.11 explicitly:
+
+          ```bash
+          # Ubuntu 24.04
+          sudo add-apt-repository ppa:deadsnakes/ppa
+          sudo apt update
+          sudo apt install python3.11
+          ```
+
+          Then set the Python executable in `webui-user.sh`:
+
+          ```bash
+          python_cmd="python3.11"
+          ```
+        </Note>
+      </Step>
+
+      <Step title="Get the launch script or clone the repository">
+        Download just the launch script:
+
+        ```bash
+        wget -q https://raw.githubusercontent.com/AUTOMATIC1111/stable-diffusion-webui/master/webui.sh
+        ```
+
+        Or clone the full repository:
+
+        ```bash
+        git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui
+        ```
+      </Step>
+
+      <Step title="Run the launch script">
+        ```bash
+        bash webui.sh
+        ```
+
+        On first run, the script creates a Python virtual environment under `venv/`, clones required model repositories, installs PyTorch and all dependencies, and starts the server.
+      </Step>
+
+      <Step title="Configure options (optional)">
+        Edit `webui-user.sh` to set environment variables or pass command-line arguments to the web UI:
+
+        ```bash title="webui-user.sh"
+        #!/bin/bash
+
+        # Commandline arguments, for example:
+        #export COMMANDLINE_ARGS="--medvram --opt-split-attention"
+
+        # Use a specific Python executable
+        #python_cmd="python3.11"
+
+        # Use a specific torch build
+        #export TORCH_COMMAND="pip install torch==2.1.2 torchvision==0.16.2 --extra-index-url https://download.pytorch.org/whl/cu121"
+        ```
+      </Step>
+    </Steps>
+
+    <Warning>
+      `webui.sh` refuses to run as root by default. Run it as a regular user. If you need to override this restriction, pass the `-f` flag: `bash webui.sh -f`.
+    </Warning>
+  </Tab>
+
+  <Tab title="macOS (Apple Silicon)">
+    <Steps>
+      <Step title="Install Homebrew">
+        If you don't already have Homebrew installed, run:
+
+        ```bash
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        ```
+      </Step>
+
+      <Step title="Install dependencies">
+        ```bash
+        brew install cmake protobuf rust python@3.10 git wget
+        ```
+      </Step>
+
+      <Step title="Clone the repository">
+        ```bash
+        git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui
+        ```
+      </Step>
+
+      <Step title="Run the launch script">
+        ```bash
+        cd stable-diffusion-webui
+        bash webui.sh
+        ```
+
+        On Apple Silicon, `webui.sh` automatically loads `webui-macos-env.sh` if it exists in the same directory, which sets Metal-specific environment variables.
+      </Step>
+    </Steps>
+
+    <Note>
+      For detailed Apple Silicon instructions including MPS configuration, see the [Installation on Apple Silicon](https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki/Installation-on-Apple-Silicon) wiki page.
+    </Note>
+  </Tab>
+</Tabs>
+
+---
+
+## WSL2 on Windows
+
+If you prefer a Linux environment on Windows, you can run the web UI inside WSL2. Follow the Linux installation steps above after setting up WSL2 with a supported distribution such as Ubuntu 22.04. The web UI will be accessible from your Windows browser at `http://127.0.0.1:7860` once the server starts.
+
+---
+
+## Common issues
+
+<AccordionGroup>
+  <Accordion title="RuntimeError: Couldn't install torch">
+    This error almost always means you are using an unsupported Python version on Windows. Python 3.10.6 is required. Uninstall your current Python version, install [Python 3.10.6](https://www.python.org/downloads/release/python-3106/), and delete the `venv` folder inside your web UI directory before relaunching.
+  </Accordion>
+
+  <Accordion title="Torch is not able to use GPU">
+    The startup script checks that CUDA is available. If you see this error:
+
+    - Verify that your NVIDIA drivers are up to date.
+    - Confirm that `nvidia-smi` returns your GPU information.
+    - If you want to run on CPU only, add `--use-cpu all --no-half` to `COMMANDLINE_ARGS`.
+    - To skip the GPU check entirely, add `--skip-torch-cuda-test` to `COMMANDLINE_ARGS`.
+  </Accordion>
+
+  <Accordion title="python3-venv is not installed (Linux)">
+    The launch script requires the `venv` module. Install it with:
+
+    ```bash
+    # Debian / Ubuntu
+    sudo apt install python3-venv
+
+    # Fedora
+    sudo dnf install python3-virtualenv
+    ```
+  </Accordion>
+
+  <Accordion title="The script must not be launched as root">
+    `webui.sh` blocks execution as root to prevent file permission issues. Switch to a regular user account, or pass the `-f` flag to force execution: `bash webui.sh -f`.
+  </Accordion>
+
+  <Accordion title="ERROR: Unsupported Running on a 32bit OS">
+    The web UI requires a 64-bit operating system. 32-bit systems are not supported.
+  </Accordion>
+
+  <Accordion title="Cannot locate TCMalloc (Linux)">
+    TCMalloc is optional but improves CPU memory performance. Install it with:
+
+    ```bash
+    # Debian / Ubuntu
+    sudo apt install libgoogle-perftools-dev
+
+    # Fedora
+    sudo dnf install gperftools-libs
+    ```
+
+    To disable the TCMalloc integration, set `NO_TCMALLOC=True` in `webui-user.sh`.
+  </Accordion>
+</AccordionGroup>

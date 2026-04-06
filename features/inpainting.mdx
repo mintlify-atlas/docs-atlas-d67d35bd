@@ -1,0 +1,110 @@
+---
+title: "Inpainting and Outpainting"
+description: "Edit specific regions of images or extend their canvas."
+---
+
+Inpainting replaces a selected region of an image with model-generated content guided by a prompt. Outpainting extends the canvas beyond the image boundaries. Both use the img2img pipeline with a mask.
+
+## Inpainting basics
+
+<Steps>
+  <Step title="Select the inpaint mode">
+    In the img2img tab, switch to **Inpaint** (mode `2`). Upload an image, then paint a mask over the area you want to replace using the brush tool.
+  </Step>
+  <Step title="Configure the mask">
+    Adjust **Mask blur** (`mask_blur`) to control the feathering at the mask boundary. A value of `4` is typical; higher values create softer transitions.
+  </Step>
+  <Step title="Choose masked content fill">
+    `inpainting_fill` determines what is placed under the mask before denoising:
+
+    | Value | Label | Description |
+    |-------|-------|-------------|
+    | `0` | Fill | Fills with blurred image colors |
+    | `1` | Original | Keeps the original pixels under the mask |
+    | `2` | Latent noise | Fills the masked latent with random noise |
+    | `3` | Latent nothing | Fills the masked latent with zeros |
+  </Step>
+  <Step title="Set denoising strength">
+    `denoising_strength` controls how much the masked region is changed. Values around `0.75–0.85` are typical for inpainting that replaces content while blending with the surrounding image.
+  </Step>
+  <Step title="Generate">
+    Run generation. Only the masked region is replaced; unmasked areas are composited from the original using `apply_overlay`.
+  </Step>
+</Steps>
+
+## Mask settings
+
+### Mask blur
+
+`mask_blur` applies a Gaussian blur to the mask edge before processing. This determines how sharply the inpainted region transitions into the surrounding image. Blurring is applied in pixel space before encoding to the latent.
+
+### Mask inversion
+
+`inpainting_mask_invert` swaps which region is masked:
+- `0` — the painted area is replaced
+- `1` — everything except the painted area is replaced
+
+### Inpaint at full resolution
+
+`inpaint_full_res` (boolean) crops the masked region to a smaller tile, runs inpainting at full model resolution, then pastes the result back into the original image. This produces sharper detail inside the mask at the cost of losing surrounding context during generation.
+
+`inpaint_full_res_padding` adds padding (in pixels) around the cropped region so the model has some context beyond the tight mask boundary.
+
+<Tip>
+Use **Inpaint at full resolution** when replacing small details (faces, hands, objects) in a large image. Disable it when the surrounding context is important for coherent blending.
+</Tip>
+
+## Uploading a separate mask
+
+Mode `4` (Inpaint upload) accepts two separate images: the base image via `init_img_inpaint` and a black-and-white mask image via `init_mask_inpaint`. White areas in the mask are inpainted. This is useful for programmatic workflows where masks are generated externally.
+
+## Dedicated inpainting models
+
+Standard Stable Diffusion models can inpaint, but dedicated inpainting models (e.g. `sd-v1-5-inpainting.ckpt`) produce significantly better results. These models use 9-channel UNets instead of the standard 4-channel UNet — 4 channels for the latent image, 4 for the masked latent, and 1 for the mask itself.
+
+```python
+# From processing.py — inpainting model conditioning
+if sd_model.model.conditioning_key in {'hybrid', 'concat'}:
+    image_conditioning = torch.ones(x.shape[0], 3, height, width, device=x.device) * 0.5
+    image_conditioning = images_tensor_to_samples(image_conditioning, ...)
+    image_conditioning = torch.nn.functional.pad(image_conditioning, (0, 0, 0, 0, 1, 0), value=1.0)
+```
+
+<Note>
+When merging an inpainting model with a normal model, the inpainting model must be model A (primary). The merge code in `extras.py` handles the channel dimension mismatch by merging only the first 4 channels.
+</Note>
+
+## Outpainting
+
+Outpainting extends the image canvas. The webui ships two outpainting scripts accessible in the img2img **Script** dropdown.
+
+### Outpainting mk2 (`scripts/outpainting_mk_2.py`)
+
+A high-quality outpainting implementation that uses frequency-domain noise matching to blend the extended region seamlessly with the original image content. The `get_matched_noise` function uses FFT to generate noise whose spectral characteristics match the source image, producing more natural-looking extensions.
+
+The script expands the canvas in all four directions. Use the prompt to describe what should appear in the new area.
+
+### Poor man's outpainting (`scripts/poor_mans_outpainting.py`)
+
+A simpler outpainting approach with explicit controls:
+
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| `pixels` | 8–256, step 8 | Pixels to expand on each selected side |
+| `mask_blur` | 0–64 | Blur applied to the mask boundary |
+| `inpainting_fill` | fill / original / latent noise / latent nothing | How the expanded area is initialized |
+| `direction` | left / right / up / down | Which sides to expand (multi-select) |
+
+The new canvas dimensions are rounded up to the nearest multiple of 64. The original image is pasted at the appropriate offset, and the expanded border is masked for inpainting.
+
+<AccordionGroup>
+  <Accordion title="Tips for better outpainting results">
+    - Use a prompt that describes the full scene, not just the new area.
+    - Set `denoising_strength` between `0.75` and `0.85`.
+    - Lower `mask_blur` values retain a sharper edge; higher values blend more gradually.
+    - Run the outpainted result through img2img with a low `denoising_strength` (`0.3–0.4`) to improve global coherence.
+  </Accordion>
+  <Accordion title="Inpaint sketch mode">
+    Inpaint sketch (mode `3`) lets you draw the replacement content directly over the masked region using a color brush rather than generating from a prompt alone. The painted pixels act as a soft color hint: a Gaussian blur composites the drawn colors with the original, and the mask is derived from pixel differences between the sketch and original.
+  </Accordion>
+</AccordionGroup>

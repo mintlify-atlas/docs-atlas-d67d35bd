@@ -1,0 +1,207 @@
+---
+title: "Text to Image"
+description: "Generate images from text prompts using Stable Diffusion."
+---
+
+Text-to-image (txt2img) is the primary generation mode. You write a prompt, configure sampling parameters, and the model produces an image. All parameters described here map directly to fields in `StableDiffusionProcessingTxt2Img`.
+
+## Prompts
+
+### Positive and negative prompts
+
+The `prompt` field describes what you want in the image. The `negative_prompt` field describes what to exclude. Both accept plain text with comma-separated terms:
+
+```text
+masterpiece, best quality, 1girl, white dress, outdoor, soft lighting
+```
+
+```text
+worst quality, low quality, blurry, watermark, text
+```
+
+### Attention weights
+
+Wrap a word or phrase in parentheses with a weight multiplier to increase or decrease its influence. Weights default to `1.0`; values above `1.0` increase emphasis, values below `1.0` reduce it. Square brackets decrease attention by a factor of `1.1`.
+
+```text
+(masterpiece:1.2), (detailed face:1.1), [blurry:0.8]
+```
+
+The prompt parser tokenizes these at generation time. Nested emphasis is supported:
+
+```text
+((very detailed:1.3) eyes:1.1)
+```
+
+### Prompt scheduling
+
+You can transition between prompts at a specific step using the `[word_a:word_b:step]` syntax. The step value can be an integer (absolute step number) or a float (fraction of total steps):
+
+```text
+fantasy landscape with a [mountain:lake:0.25] and [an oak:a christmas tree:0.75]
+```
+
+This switches from "mountain" to "lake" at 25% of steps and from "an oak" to "a christmas tree" at 75%.
+
+### Alternating prompts
+
+Alternate between two or more terms on successive steps using the pipe `|` operator:
+
+```text
+[portrait of a man|portrait of a woman]
+```
+
+### Styles
+
+The `styles` parameter accepts a list of named prompt style presets configured in the UI. Styles are appended to the prompt and negative prompt before generation.
+
+## Sampling
+
+### Sampling method
+
+The `sampler_name` parameter selects the denoising algorithm. The following samplers are available from `sd_samplers_kdiffusion.py`:
+
+<Tabs>
+  <Tab title="DPM++ family">
+    | Sampler | Notes |
+    |---|---|
+    | `DPM++ 2M` | Default Karras scheduler; fast and high quality |
+    | `DPM++ SDE` | Stochastic differential equation; second-order |
+    | `DPM++ 2M SDE` | Combines 2M and SDE; exponential scheduler |
+    | `DPM++ 2M SDE Heun` | 2M SDE with Heun solver |
+    | `DPM++ 2S a` | Ancestral, second-order; uses extra noise scheduler data (ENSD) |
+    | `DPM++ 3M SDE` | Three-step multistep SDE; exponential scheduler |
+    | `DPM2` | Second-order; Karras default |
+    | `DPM2 a` | Ancestral variant of DPM2 |
+    | `DPM fast` | Fast single-step; uses ENSD |
+    | `DPM adaptive` | Adaptive step-size; uses ENSD |
+  </Tab>
+  <Tab title="Classic">
+    | Sampler | Notes |
+    |---|---|
+    | `Euler a` | Euler ancestral; diverse outputs, uses ENSD |
+    | `Euler` | Standard Euler; deterministic |
+    | `LMS` | Linear multistep |
+    | `Heun` | Second-order Heun; slower but accurate |
+    | `Restart` | Karras restart sampler; second-order |
+  </Tab>
+  <Tab title="DDIM / PLMS / UniPC">
+    These come from `sd_samplers_timesteps.py` and use the DDIM/PLMS timestep discretization rather than k-diffusion sigmas. UniPC (Unified Predictor-Corrector) supports configurable order via `uni_pc_order`.
+  </Tab>
+  <Tab title="LCM">
+    Latent Consistency Model samplers from `sd_samplers_lcm.py`. These are designed for very low step counts (4–8 steps) with compatible LCM LoRA adapters.
+  </Tab>
+</Tabs>
+
+### Schedule type
+
+The `scheduler` parameter controls the noise schedule applied to the selected sampler. Options include `Karras`, `Exponential`, `Polyexponential`, `SGM Uniform`, `KL Optimal`, `Align Your Steps`, and `Beta`. Leaving it on `Automatic` uses each sampler's recommended default.
+
+### Steps
+
+`steps` sets the number of denoising iterations. More steps generally produce more refined images but take longer. Typical values:
+
+- 20–30 steps for most samplers
+- 4–8 steps for LCM samplers
+- 50+ steps for DDIM/PLMS when maximum quality is needed
+
+### CFG scale
+
+`cfg_scale` (Classifier-Free Guidance scale) controls how strongly the model follows the prompt. The default is `7.0`. Lower values produce more varied, looser interpretations; higher values produce closer prompt adherence but can introduce artifacts above ~15.
+
+## Image dimensions
+
+`width` and `height` set the output resolution in pixels. Both default to `512`. For SDXL models, use `1024 × 1024` or similar native resolutions.
+
+<Warning>
+Width and height must be multiples of 8. The underlying latent space uses a compression factor of 8 (`opt_f = 8` in `processing.py`).
+</Warning>
+
+## Batch settings
+
+- `batch_size` — number of images generated in a single forward pass (uses more VRAM)
+- `n_iter` — number of sequential batches to run (uses the same VRAM as a single run)
+
+Total images produced = `batch_size × n_iter`.
+
+## Seed
+
+`seed` controls the initial noise tensor. Set to `-1` to use a random seed each run. Fixing a seed lets you reproduce results and compare parameter changes.
+
+Additional seed controls in `StableDiffusionProcessing`:
+- `subseed` — variation seed blended with the main seed
+- `subseed_strength` — blend weight between `0.0` (use main seed only) and `1.0` (use subseed only)
+- `seed_resize_from_h` / `seed_resize_from_w` — resize seed latent from a different resolution to maintain composition when changing dimensions
+
+## Highres fix
+
+Highres fix generates an image at a lower resolution and then upscales and re-renders it in a second pass. This avoids the compositional problems that occur when generating natively at large resolutions.
+
+<Steps>
+  <Step title="Enable highres fix">
+    Set `enable_hr=True`. The first pass generates at `width × height`.
+  </Step>
+  <Step title="Set the scale factor">
+    `hr_scale` multiplies the first-pass dimensions. For example, `hr_scale=2.0` doubles both sides. Alternatively set explicit pixel targets with `hr_resize_x` and `hr_resize_y`.
+  </Step>
+  <Step title="Choose an upscaler">
+    `hr_upscaler` selects which upscaler to use before the second pass (e.g., `Latent`, `R-ESRGAN 4x+`, `ESRGAN_4x`).
+  </Step>
+  <Step title="Configure the second pass">
+    `hr_second_pass_steps` sets the number of denoising steps in the second pass. `denoising_strength` (0.0–1.0) controls how much the upscaled image is altered; `0.5–0.7` is typical.
+  </Step>
+  <Step title="Optionally override sampler and prompt">
+    `hr_sampler_name`, `hr_scheduler`, `hr_prompt`, and `hr_negative_prompt` let you use different settings in the second pass. Set to `"Use same sampler"` / `"Use same scheduler"` to inherit from the first pass.
+  </Step>
+</Steps>
+
+<Tip>
+You can upscale an already-generated image from the gallery using the **Upscale** button, which calls `txt2img_upscale` with `force_enable_hr=True` on the existing image without re-running the first pass.
+</Tip>
+
+## X/Y/Z plot
+
+The X/Y/Z Plot script (`scripts/xyz_grid.py`) generates a grid of images while varying up to three parameters. This is useful for comparing samplers, CFG scales, steps, seeds, and more side by side.
+
+Configure each axis with a type and a comma-separated list of values:
+
+```text
+X axis: Sampler   →  Euler a, DPM++ 2M, DPM++ SDE
+Y axis: CFG Scale →  5, 7, 9, 11
+Z axis: Seed      →  1000, 2000, 3000
+```
+
+<AccordionGroup>
+  <Accordion title="Available axis types">
+    The full list of axis options from `xyz_grid.py` includes:
+
+    - **Seed**, **Var. seed**, **Var. strength**
+    - **Steps**, **Hires steps**
+    - **CFG Scale**, **Image CFG Scale** (img2img only)
+    - **Prompt S/R** — search-and-replace a token in the prompt
+    - **Prompt order** — reorder comma-separated tokens
+    - **Sampler**, **Hires sampler**
+    - **Schedule type**
+    - **Checkpoint name**, **Refiner checkpoint**, **Refiner switch at**
+    - **VAE**
+    - **Styles**
+    - **Denoising** (img2img)
+    - **Hires upscaler**
+    - **Clip skip**
+    - **Eta**, **Sigma Churn**, **Sigma min**, **Sigma max**, **Sigma noise**
+    - **Face restore**
+    - **Token merging ratio**, **Token merging ratio high-res**
+    - **Size** (e.g. `512x512`)
+    - **RNG source** (`GPU`, `CPU`, `NV`)
+    - **FP8 mode**
+  </Accordion>
+  <Accordion title="Value syntax">
+    Values are entered as comma-separated lists. Ranges can be expressed as `start:end:step`:
+
+    ```text
+    CFG Scale: 5, 7, 9, 11
+    Steps: 10:50:10
+    Seed: 1-5     (random seeds 1 through 5)
+    ```
+  </Accordion>
+</AccordionGroup>

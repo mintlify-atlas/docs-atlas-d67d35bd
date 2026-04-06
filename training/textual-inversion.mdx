@@ -1,0 +1,195 @@
+---
+title: "Textual Inversion"
+description: "Train custom text embeddings to represent concepts, styles, or characters."
+---
+
+Textual Inversion teaches the model a new token by optimizing a small embedding vector — it does **not** modify any model weights. The trained embedding is stored in a `.pt` or `.safetensors` file that you drop into your embeddings directory, and the model immediately understands the new token when you reference it in a prompt.
+
+Because only the embedding vector is updated, training is lightweight and the resulting file is tiny (typically a few KB). The trade-off is that a single embedding has less expressive capacity than a LoRA or hypernetwork, making it best suited for specific subjects, art styles, or recurring characters.
+
+## Supported models and hardware
+
+| Model | Supported |
+|-------|-----------|
+| SD 1.x | Yes |
+| SD 2.x | Yes |
+| SDXL | Yes (dual CLIP embeddings: `clip_g` + `clip_l`) |
+
+8 GB VRAM is the recommended minimum for comfortable training. 6 GB is possible with `--medvram` and reduced batch sizes but will be slower.
+
+<Warning>
+Training is disabled when the webui is launched with `--lowvram`. The `train_embedding` function asserts this at startup.
+</Warning>
+
+---
+
+## Preparing training images
+
+Good training data is the largest factor in embedding quality.
+
+- **Image count**: 5–30 images are usually sufficient. More images do not automatically improve quality; diversity matters more than quantity.
+- **Resolution**: Use images that match your intended training resolution (512×512 for SD 1.x, 768×768 or higher for SD 2.x). The trainer resizes and center-crops images to `training_width` × `training_height` by default.
+- **Consistency**: For subject embeddings, ensure the subject occupies most of the frame. For style embeddings, ensure all images share the same aesthetic.
+- **Captions (optional)**: If you are using a `_filewords` template, name each image file with a description of its content separated by underscores or commas — the trainer inserts `[filewords]` from the filename into the prompt template.
+
+<Tip>
+Enable `varsize` in the training settings to skip resizing and instead batch images at their native aspect ratios. This can improve quality when your dataset has mixed orientations.
+</Tip>
+
+---
+
+## Training workflow
+
+<Steps>
+  <Step title="Load a checkpoint">
+    Navigate to the **Train** tab. A base model must be loaded before you can create or train an embedding. Select the checkpoint you intend to use at inference time — the embedding shape is tied to the model's CLIP encoder dimension and will be skipped at load time if used with an incompatible model.
+  </Step>
+
+  <Step title="Create an embedding">
+    In the **Create embedding** section, fill in:
+
+    - **Name**: The token string you will use in prompts. Only alphanumeric characters, `.`, `_`, `-`, and spaces are kept; all other characters are stripped. The file is saved as `<name>.pt` in your embeddings directory.
+    - **Initialization text**: A short description of the concept (e.g. `face`, `painting style`). The embedding vectors are initialized from the CLIP encoding of this text. Leave blank to initialize to zeros.
+    - **Number of vectors per token** (`nvpt`): How many embedding vectors to allocate. A value of `1` is usually enough for simple styles. Use `2`–`4` for complex subjects. More vectors provide more capacity but consume more of the prompt's token budget (75 tokens per chunk).
+    - **Overwrite existing embedding**: If unchecked, creating an embedding with an existing name raises an error.
+
+    Click **Create embedding**. The file is written immediately to disk and loaded into the embedding database.
+  </Step>
+
+  <Step title="Configure training data">
+    - **Embedding**: Select the embedding you just created from the dropdown.
+    - **Dataset directory** (`data_root`): Path to the folder containing your training images. The directory must exist and must not be empty.
+    - **Width / Height** (`training_width`, `training_height`): Resolution to resize training images to. Must match your intended generation resolution.
+  </Step>
+
+  <Step title="Set training parameters">
+    <AccordionGroup>
+      <Accordion title="Learning rate">
+        The `learn_rate` field accepts a single float (e.g. `0.005`) or a schedule string (e.g. `0.005:100, 0.001:1000`). The scheduler interpolates linearly between rates at the specified step boundaries.
+
+        Typical starting values:
+        - Style embeddings: `0.005`–`0.01`
+        - Subject embeddings: `0.002`–`0.005`
+
+        Too high a rate causes the embedding to overfit quickly and produce artifacts. Too low a rate requires far more steps to converge.
+      </Accordion>
+
+      <Accordion title="Batch size and gradient accumulation">
+        - **Batch size** (`batch_size`): Number of images processed per forward pass. Higher values stabilize gradients but require more VRAM.
+        - **Gradient accumulation steps** (`gradient_step`): Number of forward passes before an optimizer step. Effective batch size = `batch_size × gradient_step`. Use gradient accumulation to simulate larger batches on limited VRAM.
+      </Accordion>
+
+      <Accordion title="Max steps">
+        `steps` is the total number of optimizer updates to perform. A reasonable starting range is 1,000–5,000 steps. Monitor the preview images and loss log rather than relying on a fixed number.
+      </Accordion>
+
+      <Accordion title="Prompt template">
+        The template controls how prompts are constructed during training. Templates live in the `textual_inversion_templates/` directory and are plain text files with one prompt pattern per line. The token `[name]` is substituted with the embedding name; `[filewords]` is substituted with words derived from the image filename.
+
+        | Template file | Best for |
+        |---------------|----------|
+        | `style.txt` | Art styles, no filename-based context |
+        | `style_filewords.txt` | Art styles, uses image filename as additional context |
+        | `subject.txt` | Subjects and characters, no filename-based context |
+        | `subject_filewords.txt` | Subjects and characters, uses image filename as additional context |
+        | `hypernetwork.txt` | Used internally for hypernetwork training |
+        | `none.txt` | Empty template; use when your dataset directory contains caption `.txt` files |
+      </Accordion>
+
+      <Accordion title="Clip gradient">
+        - **Clip grad mode** (`clip_grad_mode`): `disabled`, `value` (clips each gradient component independently), or `norm` (clips by the global gradient norm).
+        - **Clip grad value** (`clip_grad_value`): The threshold for clipping. Only active when a clip mode is selected.
+      </Accordion>
+
+      <Accordion title="Tag shuffle and dropout">
+        - **Shuffle tags** (`shuffle_tags`): Randomly reorders comma-separated tags in each prompt. Helps prevent the model from learning a fixed token order.
+        - **Tag drop out** (`tag_drop_out`): Probability of dropping individual tags per step. Acts as regularization.
+      </Accordion>
+
+      <Accordion title="Latent sampling method">
+        `latent_sampling_method` controls how latent vectors are sampled during training: `once` (sample once per image and cache), `deterministic` (same seed per image each epoch), or `random` (re-sample every step). `once` is fastest; `random` adds variance that can help generalization.
+      </Accordion>
+    </AccordionGroup>
+  </Step>
+
+  <Step title="Configure checkpointing and previews">
+    - **Save embedding every N steps** (`save_embedding_every`): Saves a timestamped copy of the embedding to `<log_directory>/embeddings/` at the specified interval. Set to `0` to disable intermediate saves.
+    - **Create image every N steps** (`create_image_every`): Generates a preview image and writes it to `<log_directory>/images/`. Requires a log directory to be set.
+    - **Save image with embedding in PNG** (`save_image_with_stored_embedding`): Embeds the current embedding weights into the preview image's PNG metadata, allowing the embedding to be extracted directly from the image later.
+    - **Preview from txt2img**: When enabled, the preview image uses the settings from the txt2img tab rather than the training prompt.
+  </Step>
+
+  <Step title="Start training">
+    Click **Train embedding**. Training runs in the background and logs loss to `<log_directory>/train.csv`. Progress is shown in the webui status bar.
+
+    To stop training early, click **Interrupt**. The embedding is saved at the last completed step.
+
+    <Note>
+    The optimizer used is AdamW with `weight_decay=0.0`. If `save_optimizer_state` is enabled in settings, the optimizer state is saved alongside the embedding as `<name>.pt.optim`, allowing training to resume from the exact same optimizer state.
+    </Note>
+  </Step>
+</Steps>
+
+---
+
+## Using an embedding in prompts
+
+Once an embedding is in your embeddings directory, reference it by name directly in the prompt:
+
+```
+my_concept, a photograph of my_concept in a park
+```
+
+You can also use the explicit `embedding:` prefix to avoid ambiguity with regular words:
+
+```
+embedding:my_concept, a photograph of embedding:my_concept in a park
+```
+
+<Tabs>
+  <Tab title="Positive prompt">
+    ```
+    portrait of my_concept, sharp focus, studio lighting, 4k
+    ```
+  </Tab>
+  <Tab title="Negative prompt">
+    Embeddings support use in the negative prompt (`allow_negative_prompt = True`). This lets you push the model away from a concept:
+
+    ```
+    my_concept, blurry, watermark
+    ```
+  </Tab>
+</Tabs>
+
+The webui's **Extra Networks** panel (the grid icon next to the prompt) shows all loaded embeddings with their preview images. Clicking an embedding appends it to the current prompt.
+
+---
+
+## Saving and loading embeddings
+
+Embeddings are saved as `.pt` files by default. The `Embedding.save()` method writes a dict containing:
+
+| Key | Description |
+|-----|-------------|
+| `string_to_token` | Maps `"*"` to token ID `265` |
+| `string_to_param` | Maps `"*"` to the embedding tensor |
+| `name` | The embedding name |
+| `step` | The training step at which the file was saved |
+| `sd_checkpoint` | Hash of the checkpoint used for training |
+| `sd_checkpoint_name` | Name of the checkpoint used for training |
+
+Embeddings are also supported in `.safetensors` format and can be embedded directly inside PNG/WEBP/JXL/AVIF image files (the `sd-ti-embedding` PNG text chunk). SDXL embeddings contain both `clip_g` and `clip_l` tensors.
+
+To reload embeddings from disk without restarting the webui, click **Refresh** in the Extra Networks panel or call the refresh endpoint. The `EmbeddingDatabase` watches directory modification times and reloads automatically when files change.
+
+<Warning>
+An embedding trained on SD 1.x has a shape that is incompatible with SD 2.x and vice versa. The loader silently skips embeddings whose shape does not match the currently loaded model, listing them in `skipped_embeddings` rather than raising an error.
+</Warning>
+
+---
+
+## Preview images
+
+Each embedding can have an associated preview image displayed in the Extra Networks panel. The preview is looked up by `ui_extra_networks_textual_inversion.py` using `find_preview(path)`, which searches for a file named `<embedding_name>.preview.<format>` (e.g. `my_concept.preview.png`) in the embeddings directory.
+
+To set a preview, generate an image using the embedding and then use the **Save as preview** option from the image action menu.

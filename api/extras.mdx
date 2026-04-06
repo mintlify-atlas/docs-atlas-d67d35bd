@@ -1,0 +1,427 @@
+---
+title: "Extras & Utilities"
+description: "Upscale images, extract PNG metadata, and interrogate images."
+---
+
+The extras endpoints handle post-processing operations that are independent of the core diffusion pipeline: upscaling, face restoration, PNG metadata extraction, image captioning, and generation progress monitoring.
+
+## POST /sdapi/v1/extra-single-image
+
+Upscale and/or restore faces on a single image.
+
+### Request body
+
+<ParamField body="image" type="string" required>
+  The input image as a base64-encoded string (raw base64 or a data URI `data:image/png;base64,...`).
+</ParamField>
+
+<ParamField body="resize_mode" type="integer" default="0">
+  How to determine the output size:
+  - `0` — Upscale by factor: multiply the image dimensions by `upscaling_resize`.
+  - `1` — Upscale to size: resize to exactly `upscaling_resize_w` × `upscaling_resize_h`.
+</ParamField>
+
+<ParamField body="upscaling_resize" type="float" default="2">
+  Upscale factor applied to both dimensions. Only used when `resize_mode` is `0`. For example, `2` doubles the width and height.
+</ParamField>
+
+<ParamField body="upscaling_resize_w" type="integer" default="512">
+  Target width in pixels. Only used when `resize_mode` is `1`.
+</ParamField>
+
+<ParamField body="upscaling_resize_h" type="integer" default="512">
+  Target height in pixels. Only used when `resize_mode` is `1`.
+</ParamField>
+
+<ParamField body="upscaling_crop" type="boolean" default="true">
+  When `resize_mode` is `1`, crop the image to fit exactly within `upscaling_resize_w` × `upscaling_resize_h` after upscaling.
+</ParamField>
+
+<ParamField body="upscaler_1" type="string" default='"None"'>
+  Name of the primary upscaler. Use `GET /sdapi/v1/upscalers` to list available upscalers. Set to `"None"` to skip upscaling.
+</ParamField>
+
+<ParamField body="upscaler_2" type="string" default='"None"'>
+  Name of a secondary upscaler to blend with the primary result. Set to `"None"` to use only `upscaler_1`.
+</ParamField>
+
+<ParamField body="extras_upscaler_2_visibility" type="float" default="0">
+  Blend weight for the secondary upscaler output. `0` means only `upscaler_1` is used; `1` means only `upscaler_2` is used. Must be between `0` and `1`.
+</ParamField>
+
+<ParamField body="upscale_first" type="boolean" default="false">
+  When `true`, run the upscaler before applying face restoration. When `false`, face restoration runs first.
+</ParamField>
+
+<ParamField body="gfpgan_visibility" type="float" default="0">
+  Blend weight for GFPGAN face restoration. `0` disables GFPGAN; `1` fully applies it. Must be between `0` and `1`.
+</ParamField>
+
+<ParamField body="codeformer_visibility" type="float" default="0">
+  Blend weight for CodeFormer face restoration. `0` disables CodeFormer; `1` fully applies it. Must be between `0` and `1`.
+</ParamField>
+
+<ParamField body="codeformer_weight" type="float" default="0">
+  Fidelity weight for CodeFormer. `0` maximizes enhancement; `1` maximizes similarity to the original. Must be between `0` and `1`.
+</ParamField>
+
+<ParamField body="show_extras_results" type="boolean" default="true">
+  When `true`, the processed image is returned in the response. Set to `false` to skip including image data (for example, when only saving to disk on the server side).
+</ParamField>
+
+### Response
+
+<ResponseField name="image" type="string">
+  The processed image as a base64-encoded string.
+</ResponseField>
+
+<ResponseField name="html_info" type="string">
+  HTML-formatted string containing process information, such as which upscaler was used and the resulting dimensions.
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+
+```bash curl
+IMAGE_B64=$(base64 -w 0 input.png)
+
+curl -X POST http://127.0.0.1:7860/sdapi/v1/extra-single-image \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"image\": \"${IMAGE_B64}\",
+    \"upscaler_1\": \"R-ESRGAN 4x+\",
+    \"upscaling_resize\": 4,
+    \"gfpgan_visibility\": 0.5
+  }"
+```
+
+```python python
+import requests
+import base64
+from pathlib import Path
+
+input_image = base64.b64encode(Path("input.png").read_bytes()).decode("utf-8")
+
+response = requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/extra-single-image",
+    json={
+        "image": input_image,
+        "upscaler_1": "R-ESRGAN 4x+",
+        "upscaling_resize": 4,
+        "gfpgan_visibility": 0.5,
+    },
+)
+response.raise_for_status()
+output_bytes = base64.b64decode(response.json()["image"])
+Path("upscaled.png").write_bytes(output_bytes)
+```
+
+</CodeGroup>
+
+---
+
+## POST /sdapi/v1/extra-batch-images
+
+Apply the same upscaling and face restoration to multiple images in a single request.
+
+### Request body
+
+Accepts all the same parameters as `extra-single-image`, plus:
+
+<ParamField body="imageList" type="array of objects" required>
+  List of images to process. Each element is an object with two fields:
+
+  <Expandable title="ImageList item fields">
+    <ParamField body="data" type="string" required>
+      Base64-encoded image data.
+    </ParamField>
+    <ParamField body="name" type="string" required>
+      A name for the file (used for identification; does not affect output).
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+<ResponseField name="images" type="array of strings">
+  Processed images in base64 format, in the same order as the input `imageList`.
+</ResponseField>
+
+<ResponseField name="html_info" type="string">
+  HTML-formatted process information.
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+
+```bash curl
+IMG1=$(base64 -w 0 image1.png)
+IMG2=$(base64 -w 0 image2.png)
+
+curl -X POST http://127.0.0.1:7860/sdapi/v1/extra-batch-images \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"imageList\": [
+      {\"data\": \"${IMG1}\", \"name\": \"image1.png\"},
+      {\"data\": \"${IMG2}\", \"name\": \"image2.png\"}
+    ],
+    \"upscaler_1\": \"ESRGAN_4x\",
+    \"upscaling_resize\": 2
+  }"
+```
+
+```python python
+import requests
+import base64
+from pathlib import Path
+
+def encode(path):
+    return base64.b64encode(Path(path).read_bytes()).decode("utf-8")
+
+response = requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/extra-batch-images",
+    json={
+        "imageList": [
+            {"data": encode("image1.png"), "name": "image1.png"},
+            {"data": encode("image2.png"), "name": "image2.png"},
+        ],
+        "upscaler_1": "ESRGAN_4x",
+        "upscaling_resize": 2,
+    },
+)
+response.raise_for_status()
+for i, img_b64 in enumerate(response.json()["images"]):
+    Path(f"upscaled_{i}.png").write_bytes(base64.b64decode(img_b64))
+```
+
+</CodeGroup>
+
+---
+
+## POST /sdapi/v1/png-info
+
+Extract generation parameters embedded in a PNG file's metadata.
+
+<Note>
+  This endpoint reads the metadata stored in the PNG's text chunks by the WebUI. It only works with images generated by AUTOMATIC1111 (or images whose metadata is in the same format). JPEG and WebP images store the infotext in EXIF, which this endpoint does not read.
+</Note>
+
+### Request body
+
+<ParamField body="image" type="string" required>
+  Base64-encoded PNG image. Leading/trailing whitespace is stripped before decoding.
+</ParamField>
+
+### Response
+
+<ResponseField name="info" type="string">
+  The raw generation parameters string as embedded in the image (e.g., `"a cat\nSteps: 20, Sampler: Euler a, CFG scale: 7, Seed: 42, Size: 512x512, Model: v1-5"`). Empty string if no metadata is found.
+</ResponseField>
+
+<ResponseField name="items" type="object">
+  All key-value pairs from the PNG's text chunks as a dictionary. Includes the `parameters` key along with any other metadata stored in the image.
+</ResponseField>
+
+<ResponseField name="parameters" type="object">
+  A parsed representation of the `info` string. Keys correspond to generation parameter names (e.g., `"Steps"`, `"Sampler"`, `"CFG scale"`, `"Seed"`, `"Model"`).
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+
+```bash curl
+IMAGE_B64=$(base64 -w 0 generated.png)
+
+curl -X POST http://127.0.0.1:7860/sdapi/v1/png-info \
+  -H "Content-Type: application/json" \
+  -d "{\"image\": \"${IMAGE_B64}\"}"
+```
+
+```python python
+import requests
+import base64
+from pathlib import Path
+
+image_b64 = base64.b64encode(Path("generated.png").read_bytes()).decode("utf-8")
+
+response = requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/png-info",
+    json={"image": image_b64},
+)
+response.raise_for_status()
+data = response.json()
+
+print("Raw info:", data["info"])
+print("Seed:", data["parameters"].get("Seed"))
+print("Model:", data["parameters"].get("Model"))
+```
+
+</CodeGroup>
+
+---
+
+## POST /sdapi/v1/interrogate
+
+Generate a text caption describing the contents of an image. Two interrogation models are available: CLIP (general purpose) and DeepDanbooru (anime/illustration tags).
+
+<Warning>
+  Interrogation loads a model into memory. If VRAM is limited, this may cause the diffusion model to be offloaded temporarily.
+</Warning>
+
+### Request body
+
+<ParamField body="image" type="string" required>
+  Base64-encoded image to interrogate. Returns HTTP 404 if this field is absent or `null`.
+</ParamField>
+
+<ParamField body="model" type="string" default='"clip"'>
+  The interrogation model to use:
+  - `"clip"` — OpenAI CLIP-based interrogator. Produces natural language descriptions suitable for use as prompts.
+  - `"deepdanbooru"` — DeepDanbooru tagger. Produces comma-separated Danbooru tags. Useful for anime/illustration images.
+</ParamField>
+
+### Response
+
+<ResponseField name="caption" type="string">
+  The generated caption or tag string for the image.
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+
+```bash curl
+IMAGE_B64=$(base64 -w 0 photo.jpg)
+
+curl -X POST http://127.0.0.1:7860/sdapi/v1/interrogate \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"image\": \"${IMAGE_B64}\",
+    \"model\": \"clip\"
+  }"
+```
+
+```python python
+import requests
+import base64
+from pathlib import Path
+
+image_b64 = base64.b64encode(Path("photo.jpg").read_bytes()).decode("utf-8")
+
+response = requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/interrogate",
+    json={"image": image_b64, "model": "clip"},
+)
+response.raise_for_status()
+print("Caption:", response.json()["caption"])
+```
+
+</CodeGroup>
+
+---
+
+## GET /sdapi/v1/progress
+
+Poll the status of an in-progress generation job.
+
+<Tip>
+  Call this endpoint in a polling loop while a txt2img or img2img request is running. The `current_image` field provides a live preview of the generation in progress.
+</Tip>
+
+### Query parameters
+
+<ParamField query="skip_current_image" type="boolean" default="false">
+  When `true`, omit the base64-encoded current image from the response. Use this to reduce response size when you only need the progress value.
+</ParamField>
+
+### Response
+
+<ResponseField name="progress" type="float">
+  A value between `0` and `1` representing how far along the current job is. Returns `0` when no job is running.
+</ResponseField>
+
+<ResponseField name="eta_relative" type="float">
+  Estimated seconds remaining until completion.
+</ResponseField>
+
+<ResponseField name="state" type="object">
+  A snapshot of the current WebUI state, including fields like `job`, `job_count`, `job_no`, `sampling_step`, and `sampling_steps`.
+</ResponseField>
+
+<ResponseField name="current_image" type="string">
+  Base64-encoded image of the current generation state (a partially denoised image). Requires the `show_progress_every_n_steps` option to be set to a non-zero value in the WebUI settings. `null` when `skip_current_image` is `true` or no image is available.
+</ResponseField>
+
+<ResponseField name="textinfo" type="string">
+  Text status message from the WebUI (e.g., `"Sampling..."`, `"Interrupted"`).
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+
+```bash curl
+# Poll progress (skip the preview image for a lighter response)
+curl "http://127.0.0.1:7860/sdapi/v1/progress?skip_current_image=true"
+```
+
+```python python
+import requests
+import time
+import threading
+import base64
+from pathlib import Path
+
+def poll_progress():
+    """Poll generation progress in a background thread."""
+    while True:
+        r = requests.get(
+            "http://127.0.0.1:7860/sdapi/v1/progress",
+            params={"skip_current_image": True},
+        )
+        data = r.json()
+        progress = data["progress"]
+        eta = data["eta_relative"]
+        print(f"Progress: {progress:.1%}  ETA: {eta:.1f}s")
+        if progress >= 1.0:
+            break
+        time.sleep(1)
+
+# Start the generation in the main thread
+thread = threading.Thread(target=poll_progress, daemon=True)
+thread.start()
+
+response = requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/txt2img",
+    json={"prompt": "a mountain landscape", "steps": 30},
+)
+thread.join()
+
+image_bytes = base64.b64decode(response.json()["images"][0])
+Path("output.png").write_bytes(image_bytes)
+```
+
+</CodeGroup>
+
+---
+
+## POST /sdapi/v1/interrupt
+
+Interrupt the currently running generation job. The server immediately signals the generation to stop; the partially completed result is returned to the original caller.
+
+### Response
+
+Returns an empty JSON object `{}` on success.
+
+---
+
+## POST /sdapi/v1/skip
+
+Skip the current image in the batch and continue generation with the next one. Only has an effect during batch generation.
+
+### Response
+
+Returns no content.

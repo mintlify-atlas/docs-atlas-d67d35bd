@@ -1,0 +1,192 @@
+---
+title: "Extra Networks"
+description: "Use LoRA models, Textual Inversion embeddings, and Hypernetworks."
+---
+
+Extra Networks are additional model files that modify the base Stable Diffusion model's behavior without replacing the checkpoint. They are activated through special syntax in the prompt and managed through a dedicated UI panel. The framework is defined in `modules/extra_networks.py`.
+
+## How extra networks work
+
+When a prompt is parsed, `parse_prompt` scans for `<name:args>` tags using the regex `re_extra_net = re.compile(r"<(\w+):([^>]+)>")`. Each match is extracted and passed to the corresponding `ExtraNetwork.activate(p, params_list)` method before generation begins. After generation completes, `ExtraNetwork.deactivate(p)` is called for cleanup.
+
+```python
+# Pattern matched in the prompt
+<name:arg1:arg2:arg3>
+```
+
+Arguments after the name are split by `:` and stored as positional items in `ExtraNetworkParams`.
+
+## LoRA
+
+Low-Rank Adaptation (LoRA) models apply a small set of learned weight deltas to the base model's attention layers. They are well-suited for learning specific styles, characters, or concepts from a small dataset.
+
+### Prompt syntax
+
+```text
+<lora:model_name:weight>
+```
+
+- `model_name` — filename of the LoRA without extension
+- `weight` — multiplier applied to the LoRA's weight deltas (typically `0.5`–`1.0`)
+
+**Example:**
+
+```text
+1girl, red dress, <lora:add_detail:0.7>, masterpiece
+```
+
+Multiple LoRAs can be stacked in a single prompt:
+
+```text
+<lora:style_v2:0.6> <lora:character_v1:0.8>
+```
+
+### File location
+
+Place LoRA `.safetensors` or `.pt` files in:
+
+```text
+models/Lora/
+```
+
+### LyCORIS / LoCon
+
+LyCORIS and LoCon models use the same `<lora:...>` syntax and are placed in the same directory. They are registered as aliases and resolved via `extra_network_aliases`.
+
+## Textual Inversion embeddings
+
+Textual Inversion trains a new token (embedding vector) that represents a concept. At inference time, the embedding replaces a token in the prompt, steering the model toward that concept without modifying the UNet weights.
+
+### Prompt syntax
+
+Reference an embedding by its filename (without extension) directly in the prompt as a plain token:
+
+```text
+embedding:model_name
+```
+
+Or simply use the filename as a keyword if there is no collision with vocabulary tokens:
+
+```text
+my-style-v2, 1girl, outdoor
+```
+
+**Example with explicit prefix:**
+
+```text
+portrait of embedding:my_character, detailed face
+```
+
+### File location
+
+Place embedding `.pt` or `.safetensors` files in:
+
+```text
+embeddings/
+```
+
+<Note>
+Embeddings are tied to the CLIP text encoder. An embedding trained on SD 1.x will not work correctly with SD 2.x or SDXL due to differences in the text encoder architecture.
+</Note>
+
+## Hypernetworks
+
+Hypernetworks are small auxiliary networks that modify the cross-attention layers of the UNet. They were an early fine-tuning approach and are less commonly used than LoRA today. They are registered as the default extra network in `register_default_extra_networks`:
+
+```python
+from modules.extra_networks_hypernet import ExtraNetworkHypernet
+register_extra_network(ExtraNetworkHypernet())
+```
+
+### Prompt syntax
+
+```text
+<hypernet:model_name:strength>
+```
+
+- `model_name` — filename without extension
+- `strength` — multiplier applied to the hypernetwork's output (typically `0.5`–`1.1`)
+
+**Example from `extra_networks.py`:**
+
+```text
+1girl, <hypernet:agm:1.1>
+```
+
+### File location
+
+Place hypernetwork `.pt` files in:
+
+```text
+models/hypernetworks/
+```
+
+## Extra networks UI panel
+
+The extra networks panel is accessible via the button below the prompt box. It displays thumbnails of all detected models organized by type.
+
+<Steps>
+  <Step title="Open the panel">
+    Click the extra networks button (the icon that looks like stacked cards) below the prompt area in txt2img or img2img.
+  </Step>
+  <Step title="Browse and filter">
+    Switch between tabs for **Lora**, **Textual Inversion**, and **Hypernetworks**. Use the search box to filter by name.
+  </Step>
+  <Step title="Click to insert">
+    Clicking a card inserts the appropriate syntax (`<lora:name:1>`, embedding name, or `<hypernet:name:1>`) at the cursor position in the active prompt.
+  </Step>
+  <Step title="Refresh the list">
+    Click the **Refresh** button in the extra networks panel to reload the file list after adding new model files without restarting the webui.
+  </Step>
+</Steps>
+
+## Preview thumbnails
+
+Each extra network card can display a preview image. To add a preview, place an image file with the same base name as the model in the same directory:
+
+```text
+models/Lora/my_lora.safetensors
+models/Lora/my_lora.preview.png    # named preview
+models/Lora/my_lora.png            # also accepted
+```
+
+## User metadata
+
+Extra networks support a JSON sidecar file for additional metadata displayed in the UI. Create a `.json` file with the same base name as the model:
+
+```text
+models/Lora/my_lora.safetensors
+models/Lora/my_lora.json
+```
+
+The `get_user_metadata` function in `extra_networks.py` reads this file:
+
+```json
+{
+  "description": "Style LoRA trained on artwork by...",
+  "notes": "Works best at weight 0.6–0.8",
+  "tags": ["style", "painting"]
+}
+```
+
+## Disabling extra networks
+
+Set `disable_extra_networks=True` on the processing object to skip all extra network activation for a generation. This is exposed as a checkbox in some script UIs.
+
+<AccordionGroup>
+  <Accordion title="Multiple extra networks in one prompt">
+    You can combine LoRAs, embeddings, and hypernetworks freely in a single prompt. They are each activated independently:
+
+    ```text
+    masterpiece, embedding:my_style, 1girl, <lora:detail_tweaker:0.5>, <hypernet:lighting:0.8>
+    ```
+
+    LoRAs registered under the alias `lyco` also use `<lora:...>` syntax and are resolved through `extra_network_aliases`.
+  </Accordion>
+  <Accordion title="Weight clamping">
+    There is no hard limit enforced on LoRA or hypernetwork weights, but extreme values (above `2.0` or below `-1.0`) often produce artifacts. Start at `1.0` and adjust based on the output.
+  </Accordion>
+  <Accordion title="Training your own">
+    Training extra networks is done outside the main webui using the built-in training tab or external tools. Textual Inversion training is available under the **Train** tab. LoRA training requires a separate trainer such as the `sd-scripts` repository.
+  </Accordion>
+</AccordionGroup>

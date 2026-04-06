@@ -1,0 +1,263 @@
+---
+title: "Settings"
+description: "Configure Stable Diffusion web UI behavior from the Settings tab."
+---
+
+The Settings tab lets you control default behavior without restarting the server. Settings are written to `config.json` in your data directory and loaded on startup.
+
+<Note>
+  Some settings marked "Reload UI" only take effect after clicking the **Reload UI** button at the top of the Settings tab.
+</Note>
+
+## How settings work
+
+When you change a value and click **Apply settings**, the web UI writes the new value to `config.json`. On next startup, this file is read before any extensions load, so changes persist across sessions.
+
+To reset a single setting to its default, click the circular arrow icon next to it. To reset all settings to defaults, delete `config.json` and restart the server — it will be recreated with defaults on the next launch.
+
+<Tip>
+  You can lock specific settings or entire sections from being changed by users with the `--freeze-settings`, `--freeze-settings-in-sections`, and `--freeze-specific-settings` command-line arguments. See [Command-Line Arguments](/configuration/command-line-args) for details.
+</Tip>
+
+---
+
+## Saving images
+
+### File format and quality
+
+| Setting | Default | Description |
+|---|---|---|
+| `samples_save` | `true` | Always save all generated images to disk automatically. |
+| `samples_format` | `png` | File format for saved images. Options: `png`, `jpg`, `webp`, `avif`. |
+| `jpeg_quality` | `80` | Quality level for JPEG and AVIF images (1–100). |
+| `webp_lossless` | `false` | Use lossless compression when saving WebP images. |
+| `grid_save` | `true` | Always save the image grid when generating multiple images. |
+| `grid_format` | `png` | File format for saved grids. |
+| `grid_extended_filename` | `false` | Include seed and prompt in the grid filename. |
+| `grid_only_if_multiple` | `true` | Do not save a grid when the batch produces only one image. |
+
+### Filename patterns
+
+The filename and directory patterns use placeholder tokens that are replaced with metadata at save time.
+
+| Setting | Default | Description |
+|---|---|---|
+| `samples_filename_pattern` | _(empty)_ | Pattern for image filenames. Leave empty for sequential numbering. [Supported tokens on the wiki](https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki/Custom-Images-Filename-Name-and-Subdirectory). |
+| `save_images_add_number` | `true` | Appends a number to the filename to avoid overwriting existing files. |
+| `save_images_replace_action` | `Replace` | When saving to an existing file path: `Replace` overwrites; `Add number suffix` creates a new file. |
+| `directories_filename_pattern` | `[date]` | Pattern for subdirectory names when **Save images to a subdirectory** is enabled. |
+| `directories_max_prompt_words` | `8` | Maximum number of words from the prompt to use in the `[prompt_words]` directory token. |
+
+### Output directories
+
+<Note>
+  `outdir_samples` acts as a global override. If it is set, the more specific directories below are ignored.
+</Note>
+
+| Setting | Default | Description |
+|---|---|---|
+| `outdir_samples` | _(empty)_ | Global output directory for all generated images. |
+| `outdir_txt2img_samples` | `outputs/txt2img-images` | Output directory for txt2img images. |
+| `outdir_img2img_samples` | `outputs/img2img-images` | Output directory for img2img images. |
+| `outdir_extras_samples` | `outputs/extras-images` | Output directory for images processed in the Extras tab. |
+| `outdir_txt2img_grids` | `outputs/txt2img-grids` | Output directory for txt2img grids. |
+| `outdir_img2img_grids` | `outputs/img2img-grids` | Output directory for img2img grids. |
+| `outdir_save` | `log/images` | Directory used when clicking the **Save** button on an image. |
+| `outdir_init_images` | `outputs/init-images` | Directory for saving input images when using img2img. |
+
+### Pre-processing saves
+
+| Setting | Default | Description |
+|---|---|---|
+| `save_images_before_face_restoration` | `false` | Saves the image before face restoration is applied. |
+| `save_images_before_highres_fix` | `false` | Saves the image before the highres fix pass. |
+| `save_images_before_color_correction` | `false` | Saves the img2img result before color correction. |
+| `save_mask` | `false` | For inpainting: saves the greyscale mask as a separate file. |
+| `save_mask_composite` | `false` | For inpainting: saves the masked composite as a separate file. |
+| `save_incomplete_images` | `false` | Saves partially generated images when generation is interrupted. |
+
+---
+
+## Stable Diffusion
+
+### Checkpoint and model
+
+| Setting | Default | Description |
+|---|---|---|
+| `sd_model_checkpoint` | _(none)_ | The active checkpoint. Changing this loads a new model. |
+| `sd_checkpoints_limit` | `1` | Maximum number of checkpoints kept loaded simultaneously (1–10). |
+| `sd_checkpoints_keep_in_cpu` | `true` | Keeps inactive checkpoints in RAM instead of VRAM when multiple are loaded. |
+| `sd_unet` | `Automatic` | SD Unet model to use. `Automatic` matches the filename of the active checkpoint; `None` uses the Unet embedded in the checkpoint. |
+
+### Clip skip
+
+`CLIP_stop_at_last_layers` (labeled **Clip skip** in the UI) controls how many trailing layers of the CLIP text encoder are ignored during prompt encoding.
+
+| Value | Effect |
+|---|---|
+| `1` | No layers skipped — default behavior. |
+| `2` | Skips one layer. Common for some anime-focused models. |
+| Higher | More abstract prompt interpretation; most models perform worse above 2. |
+
+<Warning>
+  Changing Clip skip changes the meaning of all existing prompts. Check your model's documentation for its recommended Clip skip value.
+</Warning>
+
+### Emphasis mode
+
+The `emphasis` setting (labeled **Emphasis mode**) controls how `(word:1.2)` weight syntax in prompts is interpreted. The default is `Original`. Other modes may produce different attention scaling behavior.
+
+### Token merging
+
+Token merging (ToMe) reduces computation by merging similar attention tokens, trading a small quality reduction for faster generation.
+
+| Setting | Default | Description |
+|---|---|---|
+| `token_merging_ratio` | `0.0` | Global token merging ratio (0 = disabled, up to 0.9). |
+| `token_merging_ratio_img2img` | `0.0` | Override for img2img only. |
+| `token_merging_ratio_hr` | `0.0` | Override for the highres fix pass only. |
+
+### VAE
+
+VAE (Variational Autoencoder) converts between pixel space and the latent space where diffusion sampling occurs.
+
+| Setting | Default | Description |
+|---|---|---|
+| `sd_vae` | `Automatic` | VAE to use. `Automatic` uses a VAE with the same filename as the checkpoint; `None` uses the VAE baked into the checkpoint. |
+| `sd_vae_overrides_per_model_preferences` | `true` | The selected VAE overrides any per-model VAE set in checkpoint metadata. |
+| `auto_vae_precision` | `true` | Automatically reverts the VAE to 32-bit floats when NaN tensors are detected (prevents black images). |
+| `auto_vae_precision_bfloat16` | `false` | Converts the VAE to bfloat16 instead of float32 when NaN tensors are detected. Takes priority over `auto_vae_precision`. |
+| `sd_vae_encode_method` | `Full` | Method used to encode images to latent space in img2img/hires-fix. `Full` uses the full VAE; `TAESD` is a faster approximation. |
+| `sd_vae_decode_method` | `Full` | Method used to decode latent space to images. Same options as above. |
+
+---
+
+## Face restoration
+
+Face restoration runs a dedicated model on generated images to repair faces that were produced incorrectly by the diffusion process.
+
+| Setting | Default | Description |
+|---|---|---|
+| `face_restoration` | `false` | Enables face restoration on all generated images. |
+| `face_restoration_model` | `CodeFormer` | Which model to use: `CodeFormer` or `GFPGAN`. |
+| `code_former_weight` | `0.5` | CodeFormer fidelity weight (0–1). `0` = maximum restoration effect; `1` = minimum effect (closer to original). |
+| `face_restoration_unload` | `false` | Moves the face restoration model from VRAM to RAM after each use to free VRAM for generation. |
+
+<Tip>
+  For portraits, a `code_former_weight` between `0.4` and `0.7` usually balances restoration quality with preserving unique facial features.
+</Tip>
+
+---
+
+## Upscaling
+
+| Setting | Default | Description |
+|---|---|---|
+| `ESRGAN_tile` | `192` | Tile size for ESRGAN-based upscalers (pixels). `0` disables tiling. |
+| `ESRGAN_tile_overlap` | `8` | Tile overlap for ESRGAN upscalers (pixels). Low values produce visible seams. |
+| `DAT_tile` | `192` | Tile size for DAT upscalers (pixels). |
+| `DAT_tile_overlap` | `8` | Tile overlap for DAT upscalers. |
+| `realesrgan_enabled_models` | R-ESRGAN 4x+, Anime6B | Selects which Real-ESRGAN models appear in the upscaler dropdown. |
+| `dat_enabled_models` | DAT x2, x3, x4 | Selects which DAT models appear in the upscaler dropdown. |
+| `upscaler_for_img2img` | _(none)_ | Default upscaler applied during img2img resize. |
+| `upscaling_max_images_in_cache` | `5` | Number of upscaled images to keep in cache. |
+
+---
+
+## Sampler parameters
+
+<AccordionGroup>
+  <Accordion title="Eta / noise">
+    | Setting | Default | Description |
+    |---|---|---|
+    | `eta_ddim` | `0.0` | Eta (noise multiplier) for DDIM. Higher values produce less deterministic results. |
+    | `eta_ancestral` | `1.0` | Eta for ancestral samplers (e.g. Euler a) and SDE samplers. |
+    | `s_noise` | `1.0` | Additional noise multiplier to counteract loss of detail during sampling. |
+    | `eta_noise_seed_delta` | `0` | Adds a delta to the noise seed (ENSD). Only useful for reproducing specific images. |
+  </Accordion>
+
+  <Accordion title="Sigma schedule">
+    | Setting | Default | Description |
+    |---|---|---|
+    | `sigma_min` | `0.0` | Minimum noise strength for k-diffusion schedulers. `0` uses the default (~0.03). |
+    | `sigma_max` | `0.0` | Maximum noise strength. `0` uses the default (~14.6). |
+    | `rho` | `0.0` | Noise schedule rho. `0` uses the scheduler default (7 for Karras, 1 for polyexponential). |
+    | `sd_noise_schedule` | `Default` | Noise schedule type. Set to `Zero Terminal SNR` for models trained with that technique. |
+  </Accordion>
+
+  <Accordion title="Cross-attention optimization">
+    | Setting | Default | Description |
+    |---|---|---|
+    | `cross_attention_optimization` | `Automatic` | Which cross-attention optimization to use. `Automatic` selects the best available for your hardware. Individual options correspond to the `--opt-*` command-line flags. |
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## UI behavior
+
+### Live previews
+
+| Setting | Default | Description |
+|---|---|---|
+| `live_previews_enable` | `true` | Shows a live preview image during generation. |
+| `show_progress_every_n_steps` | `10` | How often (in sampling steps) to update the live preview. `-1` only shows the final result. |
+| `show_progress_type` | `Approx NN` | Preview quality method. `Full` is accurate but slow; `Approx NN` and `TAESD` are fast approximations; `Approx cheap` is the fastest. |
+| `live_preview_allow_lowvram_full` | `false` | Allows `Full` preview mode when `--lowvram` or `--medvram` is active. Significantly reduces generation speed. |
+| `live_preview_refresh_period` | `1000` | How often to poll for a new preview frame, in milliseconds. |
+
+### Gallery
+
+| Setting | Default | Description |
+|---|---|---|
+| `return_grid` | `true` | Includes the image grid in the gallery output. |
+| `js_modal_lightbox` | `true` | Enables the full-page lightbox viewer when clicking an image. |
+| `js_modal_lightbox_initially_zoomed` | `true` | Opens lightbox images at full zoom by default. |
+| `gallery_height` | _(empty)_ | CSS height for the gallery panel. Any valid CSS value is accepted, e.g. `768px` or `20em`. |
+
+### Infotext
+
+Infotext is the block of generation parameters shown below each image. Pasting it into the prompt field and clicking the paste button restores all parameters.
+
+| Setting | Default | Description |
+|---|---|---|
+| `enable_pnginfo` | `true` | Embeds infotext into the PNG metadata of each saved image. |
+| `save_txt` | `false` | Creates a `.txt` file alongside each saved image containing its infotext. |
+| `add_model_name_to_info` | `true` | Includes the model name in infotext. |
+| `add_model_hash_to_info` | `true` | Includes the model hash in infotext. |
+| `add_vae_name_to_info` | `true` | Includes the VAE name in infotext. |
+
+---
+
+## API settings
+
+These settings control behavior of the REST API and require the `--api` flag at startup.
+
+| Setting | Default | Description |
+|---|---|---|
+| `api_enable_requests` | `true` | Allows `http://` and `https://` URLs as input image sources in API requests. |
+| `api_forbid_local_requests` | `true` | Blocks URLs pointing to local resources (e.g. `file://`, `localhost`) in API image inputs. A security measure when the API is publicly accessible. |
+| `api_useragent` | _(empty)_ | Custom User-Agent string sent when the API fetches remote URLs for input images. |
+
+---
+
+## System
+
+| Setting | Default | Description |
+|---|---|---|
+| `auto_launch_browser` | `Local` | Whether to open the UI in a browser on startup. `Local` opens for local access; `Remote` opens even when `--listen` is set; `Disable` never opens. |
+| `memmon_poll_rate` | `8` | VRAM usage polling frequency during generation (polls per second). `0` disables monitoring. |
+| `disable_mmap_load_safetensors` | `false` | Disables memory-mapped loading of `.safetensors` files. Fixes very slow loading on some systems at the cost of slightly higher peak RAM use. |
+| `list_hidden_files` | `true` | Loads models and files from directories whose names start with `.`. |
+
+---
+
+## Training
+
+| Setting | Default | Description |
+|---|---|---|
+| `unload_models_when_training` | `false` | Moves VAE and CLIP to RAM during training to free VRAM. |
+| `pin_memory` | `false` | Enables `pin_memory` for the DataLoader. Slightly faster training but higher memory use. |
+| `save_optimizer_state` | `false` | Saves optimizer state alongside embedding/hypernetwork checkpoints so training can be resumed. |
+| `training_enable_tensorboard` | `false` | Enables TensorBoard logging during training. |
+| `training_tensorboard_save_images` | `false` | Saves generated images to TensorBoard during training. |

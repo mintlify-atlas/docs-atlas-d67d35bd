@@ -1,0 +1,201 @@
+---
+title: "Hypernetworks"
+description: "Train Hypernetwork models to influence the style of generated images."
+---
+
+A Hypernetwork is a small auxiliary neural network that intercepts the cross-attention layers of the U-Net during inference and applies a learned transformation to the key and value tensors. The base model weights are never modified; instead, the hypernetwork's two modules (one for keys, one for values) add a residual offset to the attention context at each targeted layer.
+
+The result is a consistent stylistic influence that can be dialed in or out at inference time by adjusting a multiplier. Hypernetworks were an early approach to personalization in Stable Diffusion before LoRA became widespread, and they remain fully supported.
+
+## Comparison with other training methods
+
+| Method | What changes | File size | Prompt influence |
+|--------|-------------|-----------|------------------|
+| Textual Inversion | Embedding vector only | ~10 KB | Via token in prompt |
+| Hypernetwork | Cross-attention K/V projections | 10 MB – 100 MB | Applied automatically when loaded |
+| LoRA | Low-rank weight deltas | 10 MB – 150 MB | Via `<lora:name:weight>` syntax |
+
+Unlike a textual inversion embedding, a hypernetwork does not require a special token in the prompt — it applies its transformation to every generation while it is active. Unlike a LoRA, it modifies activations rather than weights, and the architecture is specific to Stable Diffusion's cross-attention implementation.
+
+---
+
+## Architecture
+
+The core module is `HypernetworkModule` (a `torch.nn.Module`). Each module is a fully-connected sequential network whose width is determined by the `layer_structure` parameter and whose input/output dimension matches the attention layer's context dimension.
+
+Two `HypernetworkModule` instances are created per targeted attention layer size: one for the key projection context (`context_k`) and one for the value projection context (`context_v`). During a forward pass, the output of each module is added to the original context tensor via a residual connection:
+
+```python
+def forward(self, x):
+    return x + self.linear(x) * (self.multiplier if not self.training else 1)
+```
+
+The `enable_sizes` parameter selects which attention layer dimensions (e.g. `320`, `640`, `768`, `1024`, `1280`) receive hypernetwork modules. You can target all layers or a subset.
+
+---
+
+## Training workflow
+
+<Steps>
+  <Step title="Load a checkpoint">
+    Navigate to the **Train** tab. A base model must be loaded. The cross-attention layer dimensions are fixed by the U-Net architecture of that model, so train with the same model you intend to use at inference time.
+
+    <Warning>
+    Training with `--lowvram` is not supported. The `train_hypernetwork` function asserts this at startup.
+    </Warning>
+  </Step>
+
+  <Step title="Create a hypernetwork">
+    In the **Create hypernetwork** section, configure:
+
+    - **Name** (`name`): Filename for the hypernetwork. Only alphanumeric characters, `.`, `_`, `-`, and spaces are kept. The file is saved as `<name>.pt` in the hypernetworks directory.
+    - **Enable sizes** (`enable_sizes`): The attention context dimensions to hook. For SD 1.x the available sizes are `320`, `640`, `768`, `1024`, and `1280`. Select all for maximum influence, or a subset to target specific network depths.
+    - **Layer structure** (`layer_structure`): A comma-separated list of multipliers that defines the width of each linear layer relative to the attention dimension. Must start and end with `1`. The default `1, 2, 1` creates a bottleneck with a hidden layer at 2× width. A deeper structure such as `1, 2, 2, 1` adds capacity.
+    - **Activation function** (`activation_func`): Non-linearity applied between linear layers. Available options derived from `HypernetworkModule.activation_dict`:
+      - `linear` (identity, no activation)
+      - `relu`
+      - `leakyrelu`
+      - `elu`
+      - `swish` (maps to `torch.nn.Hardswish`)
+      - `tanh`
+      - `sigmoid`
+    - **Weight initialization** (`weight_init`): How layer weights are initialized before training:
+      - `Normal` — `mean=0.0, std=0.01` (default)
+      - `XavierUniform`
+      - `XavierNormal`
+      - `KaimingUniform`
+      - `KaimingNormal`
+    - **Add layer norm** (`add_layer_norm`): Inserts a `LayerNorm` after each linear layer. Can stabilize training at higher learning rates.
+    - **Use dropout** (`use_dropout`): Applies dropout with probability `0.3` to hidden layers for regularization. The last layer's dropout is controlled by `last_layer_dropout`.
+    - **Overwrite existing hypernetwork**: If unchecked, creating a hypernetwork with an existing name raises an error.
+
+    Click **Create hypernetwork**. The file is written to disk immediately.
+  </Step>
+
+  <Step title="Configure training data">
+    - **Hypernetwork** (`hypernetwork_name`): Select the hypernetwork you just created.
+    - **Dataset directory** (`data_root`): Path to a folder containing training images. The directory must exist and contain at least one file.
+    - **Width / Height** (`training_width`, `training_height`): Resolution to resize training images to.
+  </Step>
+
+  <Step title="Set training parameters">
+    <AccordionGroup>
+      <Accordion title="Learning rate">
+        `learn_rate` accepts a float (e.g. `0.00001`) or a schedule string (e.g. `0.00001:500, 0.000005:2000`). Hypernetworks are more sensitive to the learning rate than textual inversion; start low.
+
+        Typical range: `0.000005`–`0.0001`. Values above `0.001` commonly cause divergence.
+      </Accordion>
+
+      <Accordion title="Batch size and gradient accumulation">
+        - **Batch size** (`batch_size`): Images per forward pass.
+        - **Gradient accumulation steps** (`gradient_step`): Accumulates gradients over this many batches before stepping the optimizer. Effective batch size = `batch_size × gradient_step`.
+      </Accordion>
+
+      <Accordion title="Max steps">
+        `steps` is the total number of optimizer updates. Hypernetworks typically need more steps than textual inversion — 10,000–100,000 steps is common depending on dataset size and desired quality. Use `save_hypernetwork_every` to checkpoint frequently and evaluate results.
+      </Accordion>
+
+      <Accordion title="Prompt template">
+        The same template files used for textual inversion are available for hypernetwork training. The `[name]` token in the template is replaced with the hypernetwork name.
+
+        | Template file | Best for |
+        |---------------|----------|
+        | `style.txt` | Style-focused training without filename context |
+        | `style_filewords.txt` | Style training using image filenames as context |
+        | `subject.txt` | Subject-focused training |
+        | `subject_filewords.txt` | Subject training using image filenames as context |
+        | `hypernetwork.txt` | Style prompts designed specifically for hypernetwork training |
+        | `none.txt` | Use per-image caption `.txt` sidecar files |
+      </Accordion>
+
+      <Accordion title="Clip gradient">
+        - **Clip grad mode** (`clip_grad_mode`): `disabled`, `value`, or `norm`.
+        - **Clip grad value** (`clip_grad_value`): Clipping threshold. Gradient clipping is especially useful with hypernetworks because the residual connection can amplify large gradient updates.
+      </Accordion>
+
+      <Accordion title="Tag shuffle and dropout">
+        - **Shuffle tags** (`shuffle_tags`): Randomly reorders comma-separated prompt tags each step.
+        - **Tag drop out** (`tag_drop_out`): Probability of randomly dropping individual tags. Encourages the hypernetwork to generalize rather than memorizing specific prompt patterns.
+      </Accordion>
+
+      <Accordion title="Latent sampling method">
+        `latent_sampling_method` controls per-step latent noise: `once` (sample and cache), `deterministic`, or `random`. `once` is fastest for large datasets.
+      </Accordion>
+    </AccordionGroup>
+  </Step>
+
+  <Step title="Configure checkpointing and previews">
+    - **Save hypernetwork every N steps** (`save_hypernetwork_every`): Saves a timestamped `.pt` to `<log_directory>/hypernetworks/`. Set to `0` to save only at the end.
+    - **Create image every N steps** (`create_image_every`): Generates a preview image at `<log_directory>/images/`.
+    - **Preview from txt2img**: Uses the txt2img tab's current settings for preview generation instead of the training prompt.
+
+    <Note>
+    The optimizer used is AdamW. If `save_optimizer_state` is enabled in settings, the optimizer state is saved as `<name>.pt.optim` and automatically reloaded if the hypernetwork hash matches, allowing training to resume from the exact optimizer state.
+    </Note>
+  </Step>
+
+  <Step title="Start training">
+    Click **Train hypernetwork**. The webui's cross-attention forward pass is temporarily replaced with `attention_CrossAttention_forward`, which calls `apply_hypernetworks` to inject the learned transformations before each attention computation.
+
+    Click **Interrupt** to stop training early. The hypernetwork is saved at the last completed step.
+  </Step>
+</Steps>
+
+---
+
+## Applying a hypernetwork at inference time
+
+### Using the Extra Networks panel
+
+Open the Extra Networks panel (the grid icon next to the prompt box) and select the **Hypernetworks** tab. Click a hypernetwork card to insert it into the prompt using the weight syntax:
+
+```
+<hypernet:my_hypernetwork:1>
+```
+
+The number after the colon is the **strength multiplier**. This value is passed to `set_multiplier`, which sets `HypernetworkModule.multiplier` for every layer in the hypernetwork:
+
+```python
+def forward(self, x):
+    return x + self.linear(x) * self.multiplier
+```
+
+- `1.0` — full effect (default)
+- `0.5` — half strength
+- `0.0` — hypernetwork is loaded but has no effect
+- Values above `1.0` amplify the style, which can cause artifacts
+
+### Loading multiple hypernetworks
+
+Multiple `<hypernet:...:weight>` tokens can be included in a single prompt. They are applied sequentially: each hypernetwork's transformation is applied to the output of the previous one. The order in the prompt determines the order of application.
+
+```
+<hypernet:style_a:0.8> <hypernet:style_b:0.5>, a photo of a cat
+```
+
+---
+
+## Saving and using hypernetwork files
+
+Hypernetworks are saved as `.pt` files in the `hypernetwork_dir` directory (default: `models/hypernetworks/`). The saved state dict includes:
+
+| Key | Description |
+|-----|-------------|
+| `<size>` | Tuple of `(key_module_state_dict, value_module_state_dict)` for each targeted attention size |
+| `step` | Training step at save time |
+| `name` | Hypernetwork name |
+| `layer_structure` | The multiplier sequence used to build the network |
+| `activation_func` | Activation function name |
+| `weight_initialization` | Weight init method |
+| `is_layer_norm` | Whether layer norm was used |
+| `use_dropout` | Whether dropout was enabled |
+| `dropout_structure` | Per-layer dropout probabilities |
+| `activate_output` | Whether the output layer has an activation |
+| `sd_checkpoint` | Hash of the training checkpoint |
+| `sd_checkpoint_name` | Name of the training checkpoint |
+
+The webui scans `hypernetwork_dir` recursively for `*.pt` files at startup and when **Refresh** is clicked in the Extra Networks panel. The file listing is provided by `list_hypernetworks`, which sorts names case-insensitively and excludes any file named `None.pt`.
+
+<Tip>
+To add a preview image for a hypernetwork in the Extra Networks panel, generate an image using the hypernetwork and save it as `<hypernetwork_name>.preview.<format>` (e.g. `my_hypernetwork.preview.png`) in the same directory as the `.pt` file.
+</Tip>

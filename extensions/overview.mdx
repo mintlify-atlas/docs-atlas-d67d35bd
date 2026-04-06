@@ -1,0 +1,96 @@
+---
+title: "Extensions overview"
+description: "Extend Stable Diffusion web UI with community and built-in extensions."
+---
+
+Extensions are self-contained packages that add new features to the web UI. Each extension is a directory placed inside `extensions/` (for user-installed extensions) or `extensions-builtin/` (for those shipped with the web UI). When the web UI starts, it scans both directories, loads each extension's Python scripts, registers their UI components, and wires up any callbacks they declare.
+
+Extensions differ from standalone scripts in scope and integration depth. A script lives in a single `.py` file under `scripts/` and attaches to the generation pipeline via the `Script` base class. An extension can include multiple scripts, JavaScript files, a stylesheet, a `metadata.ini` manifest, and an `install.py` dependency installer — giving it the ability to add entirely new tabs, inject settings sections, hook into the sampling loop, and ship its own static assets.
+
+## Built-in extensions
+
+The following extensions ship with every installation of the web UI. They live in `extensions-builtin/` and are always present, though they can be disabled individually.
+
+<CardGroup cols={2}>
+  <Card title="Lora" icon="sliders">
+    Loads and applies LoRA (Low-Rank Adaptation) network weights during generation. Powers the **Extra Networks** LoRA tab and the `<lora:name:weight>` prompt syntax.
+  </Card>
+  <Card title="SwinIR" icon="up-right-and-down-left-from-center">
+    Image restoration and super-resolution upscaler based on the Swin Transformer architecture. Available as an upscaler option in **Extras** and **Highres. fix**.
+  </Card>
+  <Card title="LDSR" icon="up-right-and-down-left-from-center">
+    Latent Diffusion Super Resolution upscaler. Produces high-quality upscales at the cost of longer processing time compared to faster upscalers.
+  </Card>
+  <Card title="ScuNET" icon="wand-magic-sparkles">
+    Denoising and restoration upscaler based on the ScuNET model. Useful for removing JPEG compression artifacts from source images.
+  </Card>
+  <Card title="canvas-zoom-and-pan" icon="magnifying-glass">
+    Adds zoom, pan, and keyboard shortcut controls to the inpainting and sketch canvas editors in img2img.
+  </Card>
+  <Card title="hypertile" icon="bolt">
+    Optimizes UNet and VAE tiling during generation to reduce VRAM usage and speed up inference on large images.
+  </Card>
+  <Card title="soft-inpainting" icon="paintbrush">
+    An always-visible script that blends inpainted regions more naturally into the surrounding image using mask-aware latent interpolation.
+  </Card>
+  <Card title="mobile" icon="mobile">
+    Injects a stylesheet that improves the web UI layout on small-screen and mobile devices.
+  </Card>
+  <Card title="extra-options-section" icon="list">
+    Adds a configurable panel to txt2img and img2img that exposes settings-page options (such as CLIP skip and eta) directly on the generation page.
+  </Card>
+  <Card title="postprocessing-for-training" icon="gear">
+    Adds postprocessing tools to the **Extras** tab for preparing training datasets: auto-captioning, tag editing, and image preprocessing.
+  </Card>
+  <Card title="prompt-bracket-checker" icon="code">
+    Highlights unmatched parentheses and square brackets in the prompt editor to help catch attention-weight syntax errors.
+  </Card>
+</CardGroup>
+
+## Extension directory structure
+
+A typical extension looks like this:
+
+```
+extensions/
+└── my-extension/
+    ├── scripts/
+    │   └── my_script.py      # One or more Script subclasses
+    ├── javascript/
+    │   └── my_script.js      # Optional JavaScript loaded into every page
+    ├── style.css             # Optional stylesheet injected into the UI
+    ├── install.py            # Optional dependency installer run at startup
+    └── metadata.ini          # Extension manifest (name, requirements, etc.)
+```
+
+The `scripts/` directory is required for extensions that participate in generation. The web UI scans it for subclasses of `modules.scripts.Script` and `modules.scripts.ScriptPostprocessing` and registers them automatically. All other directories and files are optional.
+
+## How extensions differ from scripts
+
+| | Scripts | Extensions |
+|---|---|---|
+| Location | `scripts/*.py` | `extensions/<name>/scripts/*.py` |
+| JavaScript | Not supported | `javascript/*.js` loaded automatically |
+| Stylesheets | Not supported | `style.css` loaded automatically |
+| New UI tabs | Not supported | Via `on_ui_tabs` callback |
+| Dependency installer | Not supported | `install.py` run at startup |
+| Settings entries | Not supported | Via `on_ui_settings` callback |
+| Enabled/disabled via UI | Not supported | Yes, from the **Extensions** tab |
+
+## Popular community extensions
+
+The community has built hundreds of extensions on top of these APIs. Some of the most widely used include:
+
+<CardGroup cols={3}>
+  <Card title="ControlNet" icon="sitemap">
+    Adds conditioning inputs (depth maps, edge maps, pose skeletons, etc.) that give precise structural control over generations.
+  </Card>
+  <Card title="AnimateDiff" icon="film">
+    Converts the image generation pipeline into a video generator by inserting a temporal motion module into the UNet.
+  </Card>
+  <Card title="ADetailer" icon="user">
+    After Detailer — automatically detects faces and other regions using object detection models, then re-inpaints them at higher detail.
+  </Card>
+</CardGroup>
+
+These extensions are installed from their respective GitHub repositories via the **Extensions** tab. See [Installing extensions](/extensions/installing) for instructions.

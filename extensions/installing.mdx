@@ -1,0 +1,155 @@
+---
+title: "Installing extensions"
+description: "Install and manage extensions via the Extensions tab."
+---
+
+The web UI includes a built-in extension manager accessible from the **Extensions** tab in the top navigation bar. You can install extensions from a Git URL, browse a curated index of available extensions, or clone a repository manually.
+
+<Warning>
+  Extensions run arbitrary Python code at startup and during generation. Only install extensions from sources you trust.
+</Warning>
+
+## Install from URL
+
+The fastest way to install a specific extension when you have its repository URL.
+
+<Steps>
+  <Step title="Open the Extensions tab">
+    Click the **Extensions** tab in the top navigation bar of the web UI.
+  </Step>
+  <Step title="Open the Install from URL sub-tab">
+    Select the **Install from URL** sub-tab.
+  </Step>
+  <Step title="Paste the repository URL">
+    Paste the extension's GitHub (or other Git host) URL into the **URL for extension's git repository** field. For example:
+
+    ```
+    https://github.com/Mikubill/sd-webui-controlnet
+    ```
+
+    Leave the **Local directory name** field empty to use the repository name automatically.
+  </Step>
+  <Step title="Click Install">
+    Click the **Install** button. The web UI clones the repository into `extensions/<directory-name>/` and runs `install.py` if present.
+  </Step>
+  <Step title="Restart the web UI">
+    Click **Restart the UI** when prompted. Some extensions require a full process restart; use **Apply and restart** if the restart button appears.
+  </Step>
+</Steps>
+
+## Install from the available extensions index
+
+The **Available** sub-tab fetches an extension index and lets you browse and install extensions without knowing their URLs.
+
+<Steps>
+  <Step title="Open the Available sub-tab">
+    In the **Extensions** tab, click the **Available** sub-tab.
+  </Step>
+  <Step title="Load the extension list">
+    Click **Load from** to fetch the extension index. The default index is the official wiki list.
+  </Step>
+  <Step title="Browse and filter">
+    Use the search box and tag filters to find extensions. Each row shows the extension name, description, and a link to its repository.
+  </Step>
+  <Step title="Click Install">
+    Click **Install** next to the extension you want. The web UI clones and installs it the same way as URL installation.
+  </Step>
+  <Step title="Restart the web UI">
+    Apply and restart when prompted.
+  </Step>
+</Steps>
+
+## Manual installation
+
+If you cannot reach the web UI's extension installer, you can install an extension directly by cloning its repository.
+
+```bash
+cd stable-diffusion-webui/extensions
+git clone https://github.com/author/extension-name
+```
+
+Restart the web UI after cloning. The web UI picks up any new directories in `extensions/` on the next start.
+
+## Updating extensions
+
+<Steps>
+  <Step title="Open the Installed sub-tab">
+    Click the **Extensions** tab, then the **Installed** sub-tab. The table lists all installed extensions with their current commit hash and whether a newer commit is available.
+  </Step>
+  <Step title="Check for updates">
+    Click **Check for updates** to fetch remote refs for all extensions. Extensions with available updates display a **new commits** status.
+  </Step>
+  <Step title="Select extensions to update">
+    Check the boxes next to the extensions you want to update, or check the top-level box to select all.
+  </Step>
+  <Step title="Apply and restart">
+    Click **Apply and restart UI**. The web UI saves a backup of the current state, then hard-resets each selected extension to the latest remote commit before restarting.
+  </Step>
+</Steps>
+
+<Tip>
+  The web UI saves a config state backup automatically before applying updates. You can restore a previous state from the **Configurations** sub-tab if an update causes problems.
+</Tip>
+
+## Disabling and enabling extensions
+
+You can disable an extension without uninstalling it. Disabled extensions are not loaded at startup.
+
+<Steps>
+  <Step title="Open the Installed sub-tab">
+    Navigate to **Extensions** → **Installed**.
+  </Step>
+  <Step title="Uncheck the Enable checkbox">
+    Uncheck the **Enabled** checkbox for any extension you want to disable.
+  </Step>
+  <Step title="Apply and restart">
+    Click **Apply and restart UI** to apply the changes.
+  </Step>
+</Steps>
+
+To re-enable an extension, check its **Enabled** checkbox and restart again.
+
+## Command-line flags
+
+Two flags control extension loading at the process level and take effect before the settings file is read.
+
+| Flag | Effect |
+|---|---|
+| `--disable-all-extensions` | Skips all extensions, including built-in ones. Equivalent to the **Disable all extensions** → **all** setting. |
+| `--disable-extra-extensions` | Skips all extensions in `extensions/` but still loads built-in extensions from `extensions-builtin/`. |
+
+These flags are useful for diagnosing startup errors caused by a misbehaving extension.
+
+```bash
+# Start with no extensions at all
+python launch.py --disable-all-extensions
+
+# Start with only built-in extensions
+python launch.py --disable-extra-extensions
+```
+
+<Note>
+  Both flags can also be set from **Settings** → **Disable all extensions** without restarting from the command line.
+</Note>
+
+## The metadata.ini file
+
+Each extension can include a `metadata.ini` file in its root directory that declares its canonical name and dependencies.
+
+```ini
+[Extension]
+Name = my-extension
+Requires = sd-webui-controlnet
+```
+
+The `Requires` field lists the canonical names (directory names, lowercased) of other extensions that must be installed and enabled for this extension to work. The web UI reports an error at startup if a required extension is missing or disabled.
+
+Extensions can also declare callback ordering in `metadata.ini` to control execution order relative to other extensions:
+
+```ini
+[callbacks/my-extension/scripts/my_script.py/cfg_denoiser]
+Before = sd-webui-controlnet
+After = base
+```
+
+The section name must start with `callbacks/` and include the extension's own canonical name.

@@ -1,80 +1,157 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Launch Stable Diffusion web UI and generate your first image."
 ---
 
-## Get started in three steps
+## Starting the server
 
-Get your documentation site running locally and make your first customization.
+<Tabs>
+  <Tab title="Linux / macOS">
+    Open a terminal in the `stable-diffusion-webui` directory and run:
 
-### Step 1: Set up your local environment
+    ```bash
+    bash webui.sh
+    ```
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    On first launch, the script creates a Python virtual environment, installs PyTorch and all dependencies, and clones the required model repositories. This can take several minutes depending on your connection speed. Subsequent launches skip the installation steps and start much faster.
+  </Tab>
 
-### Step 2: Deploy your changes
+  <Tab title="Windows">
+    Open the `stable-diffusion-webui` folder in Windows Explorer and double-click **`webui-user.bat`**. Run it as a normal user — do not use "Run as administrator".
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    On first launch, the script installs all dependencies automatically. A console window shows the progress.
+  </Tab>
+</Tabs>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+When the server is ready, you will see output similar to:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+```
+Running on local URL:  http://127.0.0.1:7860
+```
 
-### Step 3: Go live
+---
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+## Generating your first image
+
+<Steps>
+  <Step title="Open the web UI">
+    Navigate to [http://127.0.0.1:7860](http://127.0.0.1:7860) in your browser. The **txt2img** tab opens by default.
+
+    <Note>
+      If the UI does not load, check the console window for errors. The server may still be initializing — wait for the `Running on local URL` line to appear before opening the browser.
+    </Note>
+  </Step>
+
+  <Step title="Load a checkpoint model">
+    A checkpoint model (`.safetensors` or `.ckpt` file) is required to generate images.
+
+    **If no model is present**, the web UI automatically downloads Stable Diffusion 1.5 on first launch unless you pass `--no-download-sd-model`. You can also place a model file manually:
+
+    1. Download a model from [Hugging Face](https://huggingface.co/models?pipeline_tag=text-to-image) or [Civitai](https://civitai.com).
+    2. Place the file in the `models/Stable-diffusion/` directory inside your web UI folder.
+    3. Click the **refresh** icon next to the checkpoint dropdown in the top-left of the UI.
+    4. Select your model from the dropdown.
+
+    <Tip>
+      `.safetensors` format is preferred over `.ckpt` because it cannot execute arbitrary code when loaded.
+    </Tip>
+  </Step>
+
+  <Step title="Write a prompt">
+    In the **Prompt** field (the large text box at the top), describe what you want to generate. The model pays attention to emphasis using parentheses:
+
+    - `a cat in a garden` — plain prompt
+    - `a cat in a ((lush garden))` — extra attention on "lush garden"
+    - `a cat in a (garden:1.4)` — explicit attention weight
+
+    In the **Negative prompt** field below, list things you do not want to appear in the image. Common entries:
+
+    ```
+    blurry, low quality, extra limbs, deformed, watermark
+    ```
+  </Step>
+
+  <Step title="Set generation parameters">
+    The default values produce good results for most prompts, but you can adjust:
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | **Sampling method** | Euler a | The algorithm used to denoise the image. DPM++ 2M Karras and Euler a are popular starting points. |
+    | **Sampling steps** | 20 | More steps generally produce higher quality but take longer. 20–30 is a good range. |
+    | **Width / Height** | 512 × 512 | Output image dimensions. Keep dimensions as multiples of 8. Larger sizes require more VRAM. |
+    | **CFG Scale** | 7 | How strictly the model follows the prompt. Higher values follow the prompt more closely but can produce artifacts. |
+    | **Seed** | -1 | A value of `-1` picks a random seed each time. Set a specific number to reproduce the same image. |
+
+    <Note>
+      If you have less than 8 GB of VRAM, add `--medvram` to `COMMANDLINE_ARGS` in `webui-user.bat` or `webui-user.sh` before launching. For 4 GB or less, use `--lowvram`.
+    </Note>
+  </Step>
+
+  <Step title="Generate">
+    Click the **Generate** button (or press **Ctrl+Enter**). A progress bar appears below the button while the image is being created.
+
+    The generated image appears on the right side of the screen. Below the image, the web UI displays the exact parameters used — including the seed — so you can reproduce or iterate on the result.
+  </Step>
+
+  <Step title="Save and review your output">
+    Generated images are automatically saved to `outputs/txt2img-images/` inside the web UI directory, organized by date.
+
+    The **parameters block** shown below the image in the UI includes:
+
+    - The full prompt and negative prompt
+    - Model name and hash
+    - Sampling method and step count
+    - CFG Scale, seed, and image dimensions
+
+    You can drag any saved PNG back into the **PNG Info** tab to restore all its generation parameters into the UI.
+  </Step>
+</Steps>
+
+---
+
+## Useful launch options
+
+You can pass command-line arguments by setting `COMMANDLINE_ARGS` in `webui-user.bat` (Windows) or `webui-user.sh` (Linux/macOS).
+
+```bash title="webui-user.sh"
+export COMMANDLINE_ARGS="--medvram --xformers"
+```
+
+```bat title="webui-user.bat"
+set COMMANDLINE_ARGS=--medvram --xformers
+```
+
+| Argument | Effect |
+|----------|--------|
+| `--medvram` | Reduces VRAM usage at a small performance cost. Use with 4–8 GB GPUs. |
+| `--lowvram` | Further reduces VRAM usage at a larger performance cost. Use with GPUs under 4 GB. |
+| `--xformers` | Enables xFormers memory-efficient attention. Increases generation speed on supported NVIDIA GPUs. |
+| `--listen` | Binds the server to `0.0.0.0` so other devices on your network can access the UI. |
+| `--port 7860` | Sets the port (default is 7860). |
+| `--autolaunch` | Opens the UI in your default browser automatically when the server starts. |
+| `--api` | Enables the REST API alongside the web UI. |
+| `--no-half` | Disables float16 precision. Use if you see black or corrupted images. |
+| `--skip-torch-cuda-test` | Skips the GPU availability check at startup. |
+
+<Warning>
+  Using `--listen` exposes the UI to your local network. Do not use it on untrusted networks without also setting `--gradio-auth username:password`.
+</Warning>
+
+---
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="txt2img" icon="image" href="/features/txt2img">
+    Learn all the txt2img options including Highres Fix, prompt editing, and batch generation.
+  </Card>
+  <Card title="img2img" icon="arrows-rotate" href="/features/img2img">
+    Generate variations from an existing image or sketch.
+  </Card>
+  <Card title="Command-line arguments" icon="terminal" href="/configuration/command-line-args">
+    Full reference for all launch flags and environment variables.
+  </Card>
+  <Card title="Extensions" icon="puzzle-piece" href="/extensions/overview">
+    Extend the web UI with community-built plugins and scripts.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

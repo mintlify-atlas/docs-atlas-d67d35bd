@@ -1,0 +1,358 @@
+---
+title: "Image to Image"
+description: "Transform images using a prompt with POST /sdapi/v1/img2img."
+---
+
+Send a POST request to `/sdapi/v1/img2img` to transform one or more existing images guided by a text prompt. The endpoint supports img2img generation, inpainting (with a mask), and works with any init image format that can be base64-encoded.
+
+<Note>
+  At least one image must be provided in `init_images`. The endpoint returns an HTTP 404 if the field is missing or `null`.
+</Note>
+
+## Request body
+
+### Input images
+
+<ParamField body="init_images" type="array of strings" required>
+  List of base64-encoded input images. Provide either a raw base64 string or a data URI (`data:image/png;base64,...`). For standard img2img, provide a single image. All images in the list are processed together as a batch.
+</ParamField>
+
+<ParamField body="denoising_strength" type="float" default="0.75">
+  How much to change the image relative to the input. `0` produces an output identical to the input; `1` ignores the input entirely and generates from scratch. Typical values for img2img are between `0.5` and `0.85`.
+</ParamField>
+
+<ParamField body="resize_mode" type="integer" default="0">
+  How to handle mismatches between the input image dimensions and the requested `width`/`height`:
+
+  - `0` — Just resize: stretch the input to the target dimensions.
+  - `1` — Crop and resize: resize then center-crop to the target dimensions.
+  - `2` — Resize and fill: resize while preserving aspect ratio and fill any uncovered areas.
+  - `3` — Just resize (latent upscale): upscale in latent space.
+</ParamField>
+
+<ParamField body="image_cfg_scale" type="float" default="null">
+  Image CFG scale used by Instruct Pix2Pix models (`sd_model.cond_stage_key == "edit"`). Has no effect on standard Stable Diffusion models.
+</ParamField>
+
+### Inpainting
+
+Inpainting lets you selectively regenerate a masked region of an image while keeping the rest intact.
+
+<ParamField body="mask" type="string" default="null">
+  Base64-encoded mask image. White (255) pixels mark the area to be inpainted; black (0) pixels are preserved. The mask must have the same dimensions as the input image.
+</ParamField>
+
+<ParamField body="mask_blur" type="integer" default="4">
+  Gaussian blur radius applied to the mask edges. Higher values feather the inpaint boundary more smoothly. Setting this value applies the same blur to both axes (`mask_blur_x` and `mask_blur_y`).
+</ParamField>
+
+<ParamField body="inpainting_fill" type="integer" default="0">
+  What to use as the initial latent for the masked region before diffusion:
+
+  - `0` — Fill: fills the masked area with blurred image content before encoding.
+  - `1` — Original: keeps the original image pixels in the masked area unchanged before encoding.
+  - `2` — Latent noise: fills the masked latent with random noise.
+  - `3` — Latent nothing: fills the masked latent with zeros.
+</ParamField>
+
+<ParamField body="inpaint_full_res" type="boolean" default="true">
+  When `true`, the masked region is cut out and processed at the full generation resolution, then pasted back. Produces sharper inpaints. When `false`, the full image is processed at `width`×`height`.
+</ParamField>
+
+<ParamField body="inpaint_full_res_padding" type="integer" default="0">
+  Number of pixels of context to include around the masked region when `inpaint_full_res` is `true`.
+</ParamField>
+
+<ParamField body="inpainting_mask_invert" type="integer" default="0">
+  When set to `1`, inverts the mask — black pixels are inpainted and white pixels are preserved.
+</ParamField>
+
+<ParamField body="initial_noise_multiplier" type="float" default="null">
+  Multiplier for the amount of noise added to the masked area before diffusion. Inherits from the options value when `null`.
+</ParamField>
+
+### Prompt
+
+<ParamField body="prompt" type="string" default='""'>
+  The positive prompt describing what you want to generate.
+</ParamField>
+
+<ParamField body="negative_prompt" type="string" default='""'>
+  Text describing what to exclude from the output.
+</ParamField>
+
+<ParamField body="styles" type="array of strings" default="[]">
+  Names of saved styles to append to the prompt and negative prompt.
+</ParamField>
+
+### Seed
+
+<ParamField body="seed" type="integer" default="-1">
+  RNG seed. Use `-1` for random. Set a fixed value to reproduce a result.
+</ParamField>
+
+<ParamField body="subseed" type="integer" default="-1">
+  Variation seed. Use `-1` for random.
+</ParamField>
+
+<ParamField body="subseed_strength" type="float" default="0">
+  Influence of the subseed. `0` means no variation; `1` fully replaces the main seed's noise.
+</ParamField>
+
+<ParamField body="seed_resize_from_h" type="integer" default="-1">
+  Source height for seed resize. Set alongside `seed_resize_from_w` to reproduce a composition at a different resolution.
+</ParamField>
+
+<ParamField body="seed_resize_from_w" type="integer" default="-1">
+  Source width for seed resize.
+</ParamField>
+
+### Sampler and scheduler
+
+<ParamField body="sampler_name" type="string" default="null">
+  Sampler name (e.g., `"Euler a"`, `"DPM++ 2M"`, `"DDIM"`). Use `GET /sdapi/v1/samplers` to list available samplers.
+</ParamField>
+
+<ParamField body="scheduler" type="string" default="null">
+  Noise schedule (e.g., `"Karras"`, `"Exponential"`). Use `GET /sdapi/v1/schedulers` to list available schedulers.
+</ParamField>
+
+### Generation parameters
+
+<ParamField body="batch_size" type="integer" default="1">
+  Number of images to generate per iteration.
+</ParamField>
+
+<ParamField body="n_iter" type="integer" default="1">
+  Number of sequential iterations. Total images = `batch_size × n_iter`.
+</ParamField>
+
+<ParamField body="steps" type="integer" default="50">
+  Number of diffusion sampling steps.
+</ParamField>
+
+<ParamField body="cfg_scale" type="float" default="7.0">
+  Classifier-free guidance scale. Higher values follow the prompt more closely.
+</ParamField>
+
+<ParamField body="width" type="integer" default="512">
+  Output image width in pixels. Must be a multiple of 8.
+</ParamField>
+
+<ParamField body="height" type="integer" default="512">
+  Output image height in pixels. Must be a multiple of 8.
+</ParamField>
+
+<ParamField body="restore_faces" type="boolean" default="null">
+  Apply face restoration to the output. Requires GFPGAN or CodeFormer.
+</ParamField>
+
+<ParamField body="tiling" type="boolean" default="null">
+  Generate a seamlessly tiling image.
+</ParamField>
+
+<ParamField body="eta" type="float" default="null">
+  Eta parameter for stochasticity (used by DDIM and similar samplers).
+</ParamField>
+
+### Sampler fine-tuning
+
+<ParamField body="s_churn" type="float" default="null">
+  Churn for stochastic samplers. Inherits from options when `null`.
+</ParamField>
+
+<ParamField body="s_tmin" type="float" default="null">
+  Minimum sigma for churn. Inherits from options when `null`.
+</ParamField>
+
+<ParamField body="s_tmax" type="float" default="null">
+  Maximum sigma. Inherits from options when `null`.
+</ParamField>
+
+<ParamField body="s_noise" type="float" default="null">
+  Noise multiplier. Inherits from options when `null`.
+</ParamField>
+
+<ParamField body="s_min_uncond" type="float" default="null">
+  Minimum unconditional sigma.
+</ParamField>
+
+### Override settings
+
+<ParamField body="override_settings" type="object" default="{}">
+  Key-value map of option names to override for this request only. Restored after the request when `override_settings_restore_afterwards` is `true`.
+</ParamField>
+
+<ParamField body="override_settings_restore_afterwards" type="boolean" default="true">
+  Restore overridden settings to their prior values after generation completes.
+</ParamField>
+
+### Refiner (SDXL)
+
+<ParamField body="refiner_checkpoint" type="string" default="null">
+  Checkpoint for the SDXL refiner pass.
+</ParamField>
+
+<ParamField body="refiner_switch_at" type="float" default="null">
+  Fraction of steps at which to switch to the refiner (e.g., `0.8`).
+</ParamField>
+
+### Scripts
+
+<ParamField body="script_name" type="string" default="null">
+  Name of a selectable script to run.
+</ParamField>
+
+<ParamField body="script_args" type="array" default="[]">
+  Arguments for the selectable script.
+</ParamField>
+
+<ParamField body="alwayson_scripts" type="object" default="{}">
+  Arguments for always-on scripts, keyed by script name, each with an `args` array.
+</ParamField>
+
+### Output control
+
+<ParamField body="send_images" type="boolean" default="true">
+  Include generated images in the response as base64 strings.
+</ParamField>
+
+<ParamField body="save_images" type="boolean" default="false">
+  Save generated images to the server's output directory.
+</ParamField>
+
+<ParamField body="force_task_id" type="string" default="null">
+  Assign a specific task ID to this generation.
+</ParamField>
+
+<ParamField body="infotext" type="string" default="null">
+  A generation infotext string. Fields present in this string that are not already set in the request are populated from it.
+</ParamField>
+
+---
+
+## Response
+
+<ResponseField name="images" type="array of strings">
+  Base64-encoded output images. Count equals `batch_size × n_iter`.
+</ResponseField>
+
+<ResponseField name="parameters" type="object">
+  Echo of the request parameters as received. Note that `init_images` and `mask` are set to `null` in this echo unless `include_init_images` was `true` (internal flag, excluded from the model).
+</ResponseField>
+
+<ResponseField name="info" type="string">
+  JSON string with generation metadata, including the seed used, model name and hash, sampler, and per-image infotext strings. Parse this string to extract seeds for reproducibility.
+</ResponseField>
+
+---
+
+## Examples
+
+### Basic img2img
+
+<CodeGroup>
+
+```bash curl
+# Encode an existing image to base64 first, then send it
+IMAGE_B64=$(base64 -w 0 input.png)
+
+curl -X POST http://127.0.0.1:7860/sdapi/v1/img2img \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"init_images\": [\"${IMAGE_B64}\"],
+    \"prompt\": \"a dog sitting in a field of sunflowers, oil painting style\",
+    \"negative_prompt\": \"blurry, ugly\",
+    \"denoising_strength\": 0.65,
+    \"steps\": 25,
+    \"cfg_scale\": 7,
+    \"sampler_name\": \"DPM++ 2M\",
+    \"scheduler\": \"Karras\"
+  }"
+```
+
+```python python
+import requests
+import base64
+from pathlib import Path
+
+# Load and encode the input image
+input_image = base64.b64encode(Path("input.png").read_bytes()).decode("utf-8")
+
+response = requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/img2img",
+    json={
+        "init_images": [input_image],
+        "prompt": "a dog sitting in a field of sunflowers, oil painting style",
+        "negative_prompt": "blurry, ugly",
+        "denoising_strength": 0.65,
+        "steps": 25,
+        "cfg_scale": 7,
+        "sampler_name": "DPM++ 2M",
+        "scheduler": "Karras",
+    },
+)
+response.raise_for_status()
+output_bytes = base64.b64decode(response.json()["images"][0])
+Path("output.png").write_bytes(output_bytes)
+```
+
+</CodeGroup>
+
+### Inpainting
+
+<Warning>
+  The mask and the init image must have the same width and height. A mismatch will produce unexpected results.
+</Warning>
+
+<CodeGroup>
+
+```bash curl
+IMAGE_B64=$(base64 -w 0 input.png)
+MASK_B64=$(base64 -w 0 mask.png)
+
+curl -X POST http://127.0.0.1:7860/sdapi/v1/img2img \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"init_images\": [\"${IMAGE_B64}\"],
+    \"mask\": \"${MASK_B64}\",
+    \"prompt\": \"a red sports car\",
+    \"negative_prompt\": \"blurry\",
+    \"denoising_strength\": 0.85,
+    \"inpainting_fill\": 1,
+    \"inpaint_full_res\": true,
+    \"mask_blur\": 4,
+    \"steps\": 30,
+    \"cfg_scale\": 7
+  }"
+```
+
+```python python
+import requests
+import base64
+from pathlib import Path
+
+input_image = base64.b64encode(Path("input.png").read_bytes()).decode("utf-8")
+mask_image = base64.b64encode(Path("mask.png").read_bytes()).decode("utf-8")
+
+response = requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/img2img",
+    json={
+        "init_images": [input_image],
+        "mask": mask_image,
+        "prompt": "a red sports car",
+        "negative_prompt": "blurry",
+        "denoising_strength": 0.85,
+        "inpainting_fill": 1,
+        "inpaint_full_res": True,
+        "mask_blur": 4,
+        "steps": 30,
+        "cfg_scale": 7,
+    },
+)
+response.raise_for_status()
+output_bytes = base64.b64decode(response.json()["images"][0])
+Path("inpainted.png").write_bytes(output_bytes)
+```
+
+</CodeGroup>

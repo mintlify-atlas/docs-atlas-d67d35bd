@@ -1,0 +1,479 @@
+---
+title: "Models & Resources"
+description: "Query available models, samplers, upscalers, and other resources."
+---
+
+These endpoints return read-only lists of resources available on the running server: checkpoints, VAEs, samplers, upscalers, embeddings, hypernetworks, and more. All endpoints use GET and require no request body unless noted.
+
+---
+
+## GET /sdapi/v1/sd-models
+
+Returns all checkpoint models found in the configured model directories.
+
+### Response
+
+Returns an array of objects, each with the following fields:
+
+<ResponseField name="title" type="string">
+  Display name of the model as it appears in the UI, including the filename and short hash (e.g., `"v1-5-pruned-emaonly.safetensors [cc6cb27103]"`).
+</ResponseField>
+
+<ResponseField name="model_name" type="string">
+  The model name without the hash suffix or file extension (e.g., `"v1-5-pruned-emaonly"`).
+</ResponseField>
+
+<ResponseField name="hash" type="string">
+  Short hash (first 10 characters of the SHA256). Used in infotext and model titles.
+</ResponseField>
+
+<ResponseField name="sha256" type="string">
+  Full SHA256 hash of the checkpoint file. `null` if not yet computed.
+</ResponseField>
+
+<ResponseField name="filename" type="string">
+  Absolute path to the checkpoint file on the server.
+</ResponseField>
+
+<ResponseField name="config" type="string">
+  Path to the `.yaml` config file associated with this checkpoint, if one was found nearby. `null` otherwise.
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+
+```bash curl
+curl http://127.0.0.1:7860/sdapi/v1/sd-models
+```
+
+```python python
+import requests
+
+models = requests.get("http://127.0.0.1:7860/sdapi/v1/sd-models").json()
+for model in models:
+    print(model["title"], model["hash"])
+```
+
+</CodeGroup>
+
+---
+
+## GET /sdapi/v1/sd-vae
+
+Returns all VAE models found in the configured VAE directory.
+
+### Response
+
+Returns an array of objects:
+
+<ResponseField name="model_name" type="string">
+  Display name of the VAE (derived from the filename without extension).
+</ResponseField>
+
+<ResponseField name="filename" type="string">
+  Absolute path to the VAE file on the server.
+</ResponseField>
+
+---
+
+## GET /sdapi/v1/samplers
+
+Returns all available sampling algorithms.
+
+### Response
+
+Returns an array of objects:
+
+<ResponseField name="name" type="string">
+  Canonical sampler name (e.g., `"Euler a"`, `"DPM++ 2M"`, `"DDIM"`). Use this value for the `sampler_name` field in generation requests.
+</ResponseField>
+
+<ResponseField name="aliases" type="array of strings">
+  Alternative names that are also accepted as `sampler_name` values.
+</ResponseField>
+
+<ResponseField name="options" type="object">
+  Sampler-specific configuration options as a string-keyed dictionary.
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+
+```bash curl
+curl http://127.0.0.1:7860/sdapi/v1/samplers
+```
+
+```python python
+import requests
+
+samplers = requests.get("http://127.0.0.1:7860/sdapi/v1/samplers").json()
+sampler_names = [s["name"] for s in samplers]
+print(sampler_names)
+```
+
+</CodeGroup>
+
+---
+
+## GET /sdapi/v1/schedulers
+
+Returns all available noise schedulers.
+
+### Response
+
+Returns an array of objects:
+
+<ResponseField name="name" type="string">
+  Internal identifier for the scheduler. Use this as the `scheduler` field in generation requests.
+</ResponseField>
+
+<ResponseField name="label" type="string">
+  Display label shown in the UI (e.g., `"Karras"`, `"Exponential"`, `"Automatic"`).
+</ResponseField>
+
+<ResponseField name="aliases" type="array of strings">
+  Alternative names for the scheduler. May be `null` if none are defined.
+</ResponseField>
+
+<ResponseField name="default_rho" type="float">
+  Default rho value for schedulers that support it (e.g., Polyexponential). May be `null`.
+</ResponseField>
+
+<ResponseField name="need_inner_model" type="boolean">
+  When `true`, the scheduler requires an inner model from the sampler to function. May be `null`.
+</ResponseField>
+
+---
+
+## GET /sdapi/v1/upscalers
+
+Returns all available upscaler models.
+
+### Response
+
+Returns an array of objects:
+
+<ResponseField name="name" type="string">
+  Upscaler name to use in extras requests and highres fix parameters (e.g., `"ESRGAN_4x"`, `"R-ESRGAN 4x+"`, `"Latent"`, `"None"`).
+</ResponseField>
+
+<ResponseField name="model_name" type="string">
+  Underlying model name. `null` for built-in upscalers with no separate model file.
+</ResponseField>
+
+<ResponseField name="model_path" type="string">
+  Path to the upscaler's data directory or model file on the server.
+</ResponseField>
+
+<ResponseField name="model_url" type="string">
+  Remote URL where the model can be downloaded. Always `null` in the current implementation.
+</ResponseField>
+
+<ResponseField name="scale" type="float">
+  The native upscale factor of the model (e.g., `4` for a 4× upscaler). `null` for upscalers where scale is configurable.
+</ResponseField>
+
+---
+
+## GET /sdapi/v1/latent-upscale-modes
+
+Returns the names of latent upscale interpolation modes available for use as `hr_upscaler` in highres fix.
+
+### Response
+
+Returns an array of objects, each with a single field:
+
+<ResponseField name="name" type="string">
+  Latent upscale mode name (e.g., `"Latent"`, `"Latent (antialiased)"`, `"Latent (bicubic)"`, `"Latent (nearest)"`).
+</ResponseField>
+
+---
+
+## GET /sdapi/v1/hypernetworks
+
+Returns all available hypernetwork models.
+
+### Response
+
+Returns an array of objects:
+
+<ResponseField name="name" type="string">
+  Hypernetwork name as used when referencing it in prompts or settings.
+</ResponseField>
+
+<ResponseField name="path" type="string">
+  Absolute path to the hypernetwork file on the server. May be `null`.
+</ResponseField>
+
+---
+
+## GET /sdapi/v1/face-restorers
+
+Returns all installed face restoration models.
+
+### Response
+
+Returns an array of objects:
+
+<ResponseField name="name" type="string">
+  Face restorer name (e.g., `"GFPGAN"`, `"CodeFormer"`, `"None"`).
+</ResponseField>
+
+<ResponseField name="cmd_dir" type="string">
+  Directory path where the model was loaded from. May be `null` for built-in restorers.
+</ResponseField>
+
+---
+
+## GET /sdapi/v1/realesrgan-models
+
+Returns all available Real-ESRGAN upscaler models.
+
+### Response
+
+Returns an array of objects:
+
+<ResponseField name="name" type="string">
+  Model name (e.g., `"R-ESRGAN General 4xV3"`, `"R-ESRGAN 4x+ Anime6B"`).
+</ResponseField>
+
+<ResponseField name="path" type="string">
+  Path to the model file. May be `null` if not yet downloaded.
+</ResponseField>
+
+<ResponseField name="scale" type="integer">
+  Native upscale factor of the model.
+</ResponseField>
+
+---
+
+## GET /sdapi/v1/prompt-styles
+
+Returns all saved prompt styles configured in the WebUI.
+
+### Response
+
+Returns an array of objects:
+
+<ResponseField name="name" type="string">
+  Style name as shown in the WebUI dropdown.
+</ResponseField>
+
+<ResponseField name="prompt" type="string">
+  The positive prompt text to append when this style is applied. May be `null`.
+</ResponseField>
+
+<ResponseField name="negative_prompt" type="string">
+  The negative prompt text to append. May be `null`.
+</ResponseField>
+
+---
+
+## GET /sdapi/v1/embeddings
+
+Returns all textual inversion embeddings currently loaded into the model, and those that were skipped.
+
+### Response
+
+<ResponseField name="loaded" type="object">
+  Dictionary of loaded embeddings keyed by embedding name (the token used in prompts, e.g., `"bad_prompt_version2"`). Each value has the following fields:
+
+  <Expandable title="Embedding item fields">
+    <ResponseField name="step" type="integer">
+      Training step count, if the embedding stores it. `null` otherwise.
+    </ResponseField>
+    <ResponseField name="sd_checkpoint" type="string">
+      Hash of the checkpoint the embedding was trained on. `null` if not stored.
+    </ResponseField>
+    <ResponseField name="sd_checkpoint_name" type="string">
+      Name of the training checkpoint. `null` if not stored.
+    </ResponseField>
+    <ResponseField name="shape" type="integer">
+      Length of each embedding vector.
+    </ResponseField>
+    <ResponseField name="vectors" type="integer">
+      Number of vectors in the embedding (i.e., how many tokens it occupies).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="skipped" type="object">
+  Same structure as `loaded`, for embeddings that could not be loaded with the current model (typically due to vector dimension mismatch).
+</ResponseField>
+
+---
+
+## GET /sdapi/v1/memory
+
+Returns system RAM and GPU VRAM usage statistics.
+
+### Response
+
+<ResponseField name="ram" type="object">
+  System memory statistics.
+
+  <Expandable title="RAM fields">
+    <ResponseField name="free" type="integer">Bytes of RAM not used by this process.</ResponseField>
+    <ResponseField name="used" type="integer">Bytes of RAM currently used by this process (RSS).</ResponseField>
+    <ResponseField name="total" type="integer">Total estimated RAM available.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="cuda" type="object">
+  GPU VRAM statistics from `torch.cuda`. Returns `{"error": "unavailable"}` when CUDA is not available.
+
+  <Expandable title="CUDA fields">
+    <ResponseField name="system" type="object">Total, free, and used VRAM from `torch.cuda.mem_get_info` in bytes.</ResponseField>
+    <ResponseField name="active" type="object">Current and peak active (allocated and in use) bytes.</ResponseField>
+    <ResponseField name="allocated" type="object">Current and peak total allocated bytes.</ResponseField>
+    <ResponseField name="reserved" type="object">Current and peak reserved bytes.</ResponseField>
+    <ResponseField name="inactive" type="object">Current and peak inactive (allocated but not in use) bytes.</ResponseField>
+    <ResponseField name="events" type="object">Retry and OOM event counters: `retries` and `oom`.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+
+```bash curl
+curl http://127.0.0.1:7860/sdapi/v1/memory
+```
+
+```python python
+import requests
+
+mem = requests.get("http://127.0.0.1:7860/sdapi/v1/memory").json()
+ram_used_mb = mem["ram"]["used"] / 1024 ** 2
+print(f"RAM used: {ram_used_mb:.0f} MB")
+
+if "error" not in mem["cuda"]:
+    vram_free_mb = mem["cuda"]["system"]["free"] / 1024 ** 2
+    print(f"VRAM free: {vram_free_mb:.0f} MB")
+```
+
+</CodeGroup>
+
+---
+
+## GET /sdapi/v1/scripts
+
+Returns the names of all registered scripts, separated by whether they are for txt2img or img2img.
+
+### Response
+
+<ResponseField name="txt2img" type="array of strings">
+  Names of scripts available in the txt2img tab.
+</ResponseField>
+
+<ResponseField name="img2img" type="array of strings">
+  Names of scripts available in the img2img tab.
+</ResponseField>
+
+---
+
+## GET /sdapi/v1/script-info
+
+Returns detailed information about every registered script, including each script's arguments and their types.
+
+### Response
+
+Returns an array of objects:
+
+<ResponseField name="name" type="string">Script name.</ResponseField>
+<ResponseField name="is_alwayson" type="boolean">Whether the script runs automatically on every generation.</ResponseField>
+<ResponseField name="is_img2img" type="boolean">Whether the script belongs to the img2img tab.</ResponseField>
+<ResponseField name="args" type="array of objects">
+  List of argument definitions.
+  <Expandable title="Argument fields">
+    <ResponseField name="label" type="string">UI label for this argument.</ResponseField>
+    <ResponseField name="value" type="any">Default value.</ResponseField>
+    <ResponseField name="minimum" type="any">Minimum allowed value (for numeric inputs).</ResponseField>
+    <ResponseField name="maximum" type="any">Maximum allowed value (for numeric inputs).</ResponseField>
+    <ResponseField name="step" type="any">Step increment (for numeric inputs).</ResponseField>
+    <ResponseField name="choices" type="array of strings">Allowed values (for dropdown inputs). `null` when not a dropdown.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## GET /sdapi/v1/extensions
+
+Returns all installed extensions and their version information.
+
+### Response
+
+Returns an array of objects (only extensions with a configured remote repository are included):
+
+<ResponseField name="name" type="string">Extension name.</ResponseField>
+<ResponseField name="remote" type="string">URL of the extension's Git repository.</ResponseField>
+<ResponseField name="branch" type="string">Currently checked-out branch.</ResponseField>
+<ResponseField name="commit_hash" type="string">SHA of the current commit.</ResponseField>
+<ResponseField name="version" type="string">Version string derived from the Git tag or commit date.</ResponseField>
+<ResponseField name="commit_date" type="string">Date of the current commit.</ResponseField>
+<ResponseField name="enabled" type="boolean">Whether the extension is currently enabled.</ResponseField>
+
+---
+
+## Refresh and checkpoint management
+
+### POST /sdapi/v1/refresh-checkpoints
+
+Rescan the model directories and update the in-memory checkpoint list. Call this after adding new model files to the server without restarting it.
+
+Returns an empty JSON object `{}` on success.
+
+### POST /sdapi/v1/refresh-embeddings
+
+Force a reload of all textual inversion embeddings from disk.
+
+Returns an empty JSON object `{}` on success.
+
+### POST /sdapi/v1/refresh-vae
+
+Rescan the VAE directory and update the VAE list.
+
+Returns an empty JSON object `{}` on success.
+
+### POST /sdapi/v1/unload-checkpoint
+
+Unload the current model weights from GPU memory to free VRAM. The model must be reloaded before the next generation.
+
+Returns an empty JSON object `{}` on success.
+
+### POST /sdapi/v1/reload-checkpoint
+
+Send the current model back to the GPU after it was unloaded with `unload-checkpoint`.
+
+Returns an empty JSON object `{}` on success.
+
+### Example: refresh after adding a model
+
+<CodeGroup>
+
+```bash curl
+# Drop a new model file into the models directory, then refresh
+curl -X POST http://127.0.0.1:7860/sdapi/v1/refresh-checkpoints
+
+# Verify it appears in the list
+curl http://127.0.0.1:7860/sdapi/v1/sd-models | python3 -c "
+import sys, json
+models = json.load(sys.stdin)
+print([m['title'] for m in models])
+"
+```
+
+```python python
+import requests
+
+# Refresh after adding a model file to the models directory
+requests.post("http://127.0.0.1:7860/sdapi/v1/refresh-checkpoints").raise_for_status()
+
+models = requests.get("http://127.0.0.1:7860/sdapi/v1/sd-models").json()
+titles = [m["title"] for m in models]
+print(titles)
+```
+
+</CodeGroup>

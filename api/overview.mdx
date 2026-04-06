@@ -1,0 +1,191 @@
+---
+title: "API Overview"
+description: "Use the Stable Diffusion web UI REST API to generate images programmatically."
+keywords: ["api", "rest", "stable diffusion", "txt2img", "img2img", "endpoints"]
+---
+
+The Stable Diffusion web UI exposes a REST API built on [FastAPI](https://fastapi.tiangolo.com/). You can use it to generate images, run extras postprocessing, manage models, and control the server—all without touching the Gradio UI.
+
+## Enabling the API
+
+The API is not enabled by default when running the web UI. You have two ways to turn it on.
+
+<Tabs>
+  <Tab title="API alongside the web UI">
+    Pass `--api` when launching to run both the Gradio web UI and the REST API on the same server:
+
+    ```bash
+    python webui.py --api
+    ```
+  </Tab>
+  <Tab title="API only (no web UI)">
+    Pass `--nowebui` to start the server in API-only mode. No Gradio interface is loaded, which reduces startup time and memory use:
+
+    ```bash
+    python webui.py --nowebui
+    ```
+
+    <Note>
+      In `--nowebui` mode the server defaults to port **7861** instead of 7860.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Base URL
+
+By default the server listens on `localhost` only:
+
+```
+http://127.0.0.1:7860
+```
+
+To accept connections from other machines, add `--listen` (binds to `0.0.0.0`). To change the port, use `--port <number>`.
+
+## Interactive documentation
+
+The API ships with two built-in documentation UIs:
+
+<CardGroup cols={2}>
+  <Card title="Swagger UI" icon="code" href="http://127.0.0.1:7860/docs">
+    Interactive playground at `/docs`. Try every endpoint directly in the browser.
+  </Card>
+  <Card title="ReDoc" icon="book-open" href="http://127.0.0.1:7860/redoc">
+    Readable reference at `/redoc`. Better for browsing the full schema.
+  </Card>
+</CardGroup>
+
+## Endpoints
+
+All routes are versioned under `/sdapi/v1/`.
+
+### Generation
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/sdapi/v1/txt2img` | Generate images from a text prompt |
+| `POST` | `/sdapi/v1/img2img` | Generate images using an existing image as input |
+| `POST` | `/sdapi/v1/interrogate` | Caption an image using CLIP or DeepDanbooru |
+
+### Extras / postprocessing
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/sdapi/v1/extra-single-image` | Run upscaling and face restoration on one image |
+| `POST` | `/sdapi/v1/extra-batch-images` | Run upscaling and face restoration on a batch of images |
+
+### Utilities
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/sdapi/v1/png-info` | Extract generation parameters embedded in a PNG file |
+| `GET` | `/sdapi/v1/progress` | Poll the current generation progress and ETA |
+| `POST` | `/sdapi/v1/interrupt` | Interrupt the current generation |
+| `POST` | `/sdapi/v1/skip` | Skip to the next image in the current batch |
+
+### Configuration
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/sdapi/v1/options` | Read current settings |
+| `POST` | `/sdapi/v1/options` | Update settings |
+| `GET` | `/sdapi/v1/cmd-flags` | Read the command-line flags the server was started with |
+
+### Models and resources
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/sdapi/v1/sd-models` | List available Stable Diffusion checkpoints |
+| `GET` | `/sdapi/v1/sd-vae` | List available VAE models |
+| `GET` | `/sdapi/v1/hypernetworks` | List available hypernetworks |
+| `GET` | `/sdapi/v1/samplers` | List available samplers |
+| `GET` | `/sdapi/v1/schedulers` | List available schedulers |
+| `GET` | `/sdapi/v1/upscalers` | List available upscaler models |
+| `GET` | `/sdapi/v1/latent-upscale-modes` | List latent upscale modes |
+| `GET` | `/sdapi/v1/face-restorers` | List available face restoration models |
+| `GET` | `/sdapi/v1/realesrgan-models` | List available RealESRGAN models |
+| `GET` | `/sdapi/v1/prompt-styles` | List saved prompt styles |
+| `GET` | `/sdapi/v1/embeddings` | List loaded and skipped textual inversion embeddings |
+| `GET` | `/sdapi/v1/memory` | Report RAM and CUDA memory usage |
+
+### Refresh
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/sdapi/v1/refresh-checkpoints` | Rescan the checkpoints directory |
+| `POST` | `/sdapi/v1/refresh-vae` | Rescan the VAE directory |
+| `POST` | `/sdapi/v1/refresh-embeddings` | Reload textual inversion embeddings from disk |
+| `POST` | `/sdapi/v1/unload-checkpoint` | Unload the current model from VRAM |
+| `POST` | `/sdapi/v1/reload-checkpoint` | Move the current model back onto the device |
+
+### Training
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/sdapi/v1/create/embedding` | Create a new textual inversion embedding |
+| `POST` | `/sdapi/v1/create/hypernetwork` | Create a new hypernetwork |
+| `POST` | `/sdapi/v1/train/embedding` | Train a textual inversion embedding |
+| `POST` | `/sdapi/v1/train/hypernetwork` | Train a hypernetwork |
+
+### Scripts and extensions
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/sdapi/v1/scripts` | List available scripts for txt2img and img2img |
+| `GET` | `/sdapi/v1/script-info` | Get detailed argument info for each script |
+| `GET` | `/sdapi/v1/extensions` | List installed extensions |
+
+### Server control
+
+These routes are only registered when the server is started with `--api-server-stop`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/sdapi/v1/server-kill` | Kill the server process immediately |
+| `POST` | `/sdapi/v1/server-restart` | Restart the server |
+| `POST` | `/sdapi/v1/server-stop` | Stop the server gracefully |
+
+## Quick start examples
+
+<CodeGroup>
+
+```bash curl
+curl http://127.0.0.1:7860/sdapi/v1/txt2img \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "a photo of a cat sitting on a windowsill",
+    "negative_prompt": "blurry, low quality",
+    "steps": 20,
+    "width": 512,
+    "height": 512,
+    "cfg_scale": 7
+  }'
+```
+
+```python Python
+import requests
+import base64
+
+response = requests.post(
+    "http://127.0.0.1:7860/sdapi/v1/txt2img",
+    json={
+        "prompt": "a photo of a cat sitting on a windowsill",
+        "negative_prompt": "blurry, low quality",
+        "steps": 20,
+        "width": 512,
+        "height": 512,
+        "cfg_scale": 7,
+    },
+)
+
+result = response.json()
+
+# Images are returned as base64-encoded strings
+for i, image_b64 in enumerate(result["images"]):
+    image_data = base64.b64decode(image_b64)
+    with open(f"output_{i}.png", "wb") as f:
+        f.write(image_data)
+```
+
+</CodeGroup>
+
+A successful response contains an `images` array of base64-encoded strings, a `parameters` object that echoes back the request, and an `info` string with generation metadata.
